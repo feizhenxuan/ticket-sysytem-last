@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.SeatMapper">
+
+    <insert id="insert" parameterType="com.alipay.ticketbacked.core.model.Seat" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hx_seats (hall_id, row_num, col_num, seat_type, gmt_create)
+        VALUES (#{hallId}, #{rowNum}, #{colNum}, #{seatType}, NOW())
+    </insert>
+
+    <delete id="deleteByHallId">
+        DELETE FROM hx_seats WHERE hall_id = #{hallId}
+    </delete>
+
+</mapper>
