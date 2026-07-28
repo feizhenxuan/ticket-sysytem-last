@@ -1,0 +1,24 @@
+version: 1.0
+configs:
+  # 基础配置
+  #   alios(可选，默认6u2) 基础镜像版本 6u2/7u2
+  #   lang(可选，默认zh_CN.GB18030) 服务器编码 zh_CN.UTF-8/zh_CN.GB18030
+  #   timezone（可选，默认ShangHai） 服务器时区 LosAngeles/ShangHai/UTC
+  #   techstack(可选，默认sofa) 技术栈 sofa/sofaboot/chair
+  basics:
+    alios: 7u2
+    lang: zh_CN.UTF-8
+    timezone: Asia/Shanghai
+    techstack: sofaboot
+  # 软件配置
+  # 目前支持的软件 maven/jdk/t-alipay-tengine/obproxy/oracle/cloudengine/acc
+  # 目前支持的软件版本参考 https://zappinfo.alipay.com/app/showSoftware.htm
+  softwares:
+    # name 软件名
+    # version 软件版本
+    - name: maven
+      version: 3.6.3
+    - name: jdk
+      version: 17.0.8+7+1
+    - name: t-alipay-tengine
+      version: 1.5.3

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.OrderMapper">
+
+    <insert id="insert" parameterType="com.alipay.ticketbacked.core.model.Order" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hx_orders (order_no, user_id, session_id, seat_ids, ticket_count,
+                               total_amount, status, gmt_create)
+        VALUES (#{orderNo}, #{userId}, #{sessionId}, #{seatIds}, #{ticketCount},
+                #{totalAmount}, #{status}, NOW())
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE hx_orders
+        SET status = #{status}, trade_no = #{tradeNo}, pickup_code = #{pickupCode}, paid_at = #{paidAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateCancelStatus">
+        UPDATE hx_orders
+        SET status = #{status}, cancelled_at = #{cancelledAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateRefundStatus">
+        UPDATE hx_orders
+        SET status = #{status}, refunded_at = #{refundedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="findAllForAdmin" resultType="com.alipay.ticketbacked.core.model.Order">
+        SELECT * FROM hx_orders
+        <where>
+            <if test="status != null and status != ''">
+                status = #{status}
+            </if>
+        </where>
+        ORDER BY gmt_create DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="dailyRevenueTrend" resultType="java.util.LinkedHashMap">
+        SELECT DATE(gmt_create) as date,
+               COUNT(*) as order_count,
+               COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) as revenue
+        FROM hx_orders
+        WHERE gmt_create >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+        GROUP BY DATE(gmt_create)
+        ORDER BY date
+    </select>
+
+    <select id="movieRanking" resultType="java.util.LinkedHashMap">
+        SELECT m.id as movie_id, m.title as movie_title,
+               COUNT(o.id) as order_count,
+               COALESCE(SUM(o.total_amount), 0) as revenue
+        FROM hx_orders o
+        INNER JOIN hx_sessions s ON o.session_id = s.id
+        INNER JOIN hx_movies m ON s.movie_id = m.id
+        WHERE o.status = 'paid'
+        GROUP BY m.id, m.title
+        ORDER BY revenue DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>
