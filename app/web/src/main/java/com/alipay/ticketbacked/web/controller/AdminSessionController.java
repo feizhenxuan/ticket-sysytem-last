@@ -5,7 +5,6 @@ import com.alipay.ticketbacked.common.dal.mapper.SessionMapper;
 import com.alipay.ticketbacked.core.model.Session;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 /**

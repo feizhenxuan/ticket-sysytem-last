@@ -75,7 +75,9 @@ public class SlotManager {
         if (countMatcher.find()) {
             try {
                 slots.put("ticket_count", countMatcher.group(1));
-            } catch (NumberFormatException ignored) {}
+            } catch (NumberFormatException ignored) {
+                // This catch statement is intentionally empty
+            }
         }
 
         // 4. 时间表达

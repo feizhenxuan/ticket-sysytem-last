@@ -6,8 +6,6 @@ import com.alipay.ticketbacked.core.model.Movie;
 import com.alipay.ticketbacked.core.model.dto.MovieDTO;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 

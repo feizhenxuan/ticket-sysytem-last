@@ -3,7 +3,6 @@ package com.alipay.ticketbacked.biz.shared.service;
 import com.alipay.ticketbacked.common.dal.mapper.*;
 import com.alipay.ticketbacked.core.model.*;
 import com.alipay.ticketbacked.core.model.dto.SessionDTO;
-import com.alipay.ticketbacked.core.model.dto.SessionSeatDTO;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;

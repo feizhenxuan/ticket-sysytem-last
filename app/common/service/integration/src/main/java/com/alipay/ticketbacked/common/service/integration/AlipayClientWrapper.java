@@ -76,7 +76,7 @@ public class AlipayClientWrapper {
     /** 验签支付宝异步通知 — 对应 Python verify_notify */
     public boolean verifyNotify(Map<String, String> params) {
         try {
-            String sign = params.remove("sign");
+            params.remove("sign");
             params.remove("sign_type");
             return AlipaySignature.rsaCheckV2(params, alipayPublicKey, "UTF-8", "RSA2");
         } catch (AlipayApiException e) {

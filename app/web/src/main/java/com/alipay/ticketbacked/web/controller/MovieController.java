@@ -1,7 +1,6 @@
 package com.alipay.ticketbacked.web.controller;
 
 import com.alipay.ticketbacked.biz.shared.service.MovieService;
-import com.alipay.ticketbacked.core.model.Movie;
 import com.alipay.ticketbacked.core.model.dto.MovieDTO;
 import com.alipay.ticketbacked.core.model.BizException;
 import org.springframework.web.bind.annotation.*;

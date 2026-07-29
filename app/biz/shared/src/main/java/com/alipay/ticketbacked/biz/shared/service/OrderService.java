@@ -1,10 +1,8 @@
 package com.alipay.ticketbacked.biz.shared.service;
 
 import com.alipay.ticketbacked.common.dal.mapper.*;
-import com.alipay.ticketbacked.common.util.JsonUtil;
 import com.alipay.ticketbacked.core.model.*;
 import com.alipay.ticketbacked.core.model.BizException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
