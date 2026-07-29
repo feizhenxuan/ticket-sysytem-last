@@ -10,8 +10,10 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.*;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 对话接口 — 对应 Python /api/chat
@@ -23,7 +25,10 @@ public class ChatController {
 
     private final ChatAgentService chatAgentService;
     private final ObjectMapper MAPPER = new ObjectMapper();
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final ExecutorService executor = new ThreadPoolExecutor(
+            4, 8, 60L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(100),
+            new ThreadPoolExecutor.CallerRunsPolicy());
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
