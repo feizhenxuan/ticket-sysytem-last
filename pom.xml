@@ -155,6 +155,8 @@
 					<compilerArgs>
 						<arg>-parameters</arg>
 					</compilerArgs>
+					<!-- 显式关闭 --release 标志，使用 -source/-target 替代 -->
+					<release combine.children="override"/>
 				</configuration>
 			</plugin>
 			<plugin>
