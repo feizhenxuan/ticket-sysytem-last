@@ -25,14 +25,8 @@
 			<groupId>org.mybatis.spring.boot</groupId>
 			<artifactId>mybatis-spring-boot-starter</artifactId>
 			<version>3.0.4</version>
-			<exclusions>
-				<exclusion>
-					<groupId>com.zaxxer</groupId>
-					<artifactId>HikariCP</artifactId>
-				</exclusion>
-			</exclusions>
 		</dependency>
-		<!-- ZDAL 数据源 (SOFABoot 数据访问层) -->
+		<!-- ZDAL 数据源 (SOFABoot 数据访问层，联调环境由 Linke 自动注入) -->
 		<dependency>
 			<groupId>com.alipay.sofa</groupId>
 			<artifactId>dds-alipay-sofa-boot-starter</artifactId>
