@@ -9,7 +9,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
 /**
- * CORS 过滤器 — 在最外层处理跨域，确保 OPTIONS 预检请求不被拦截器阻断
+ * CORS 过滤器 — 在 Filter 层处理跨域，确保 OPTIONS 预检请求最先被处理
+ * 与 WebConfig.addCorsMappings 双保险
  */
 @Configuration
 public class CorsFilterConfig {
