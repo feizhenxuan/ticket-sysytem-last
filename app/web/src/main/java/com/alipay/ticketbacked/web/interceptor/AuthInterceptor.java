@@ -5,6 +5,8 @@ import com.alipay.ticketbacked.common.util.JwtUtil;
 import com.alipay.ticketbacked.core.model.User;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -14,6 +16,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
  */
 @Component
 public class AuthInterceptor implements HandlerInterceptor {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthInterceptor.class);
 
     private final JwtUtil jwtUtil;
     private final UserMapper userMapper;
@@ -46,7 +50,9 @@ public class AuthInterceptor implements HandlerInterceptor {
             return false;
         }
 
+        log.info("[AuthInterceptor] 开始查询用户, userId={}", userId);
         User user = userMapper.findById(userId);
+        log.info("[AuthInterceptor] 查询结果 user={}", user == null ? "null" : "id=" + user.getId() + ", username=" + user.getUsername());
         if (user == null) {
             response.setStatus(401);
             response.setContentType("application/json;charset=UTF-8");
@@ -54,7 +60,6 @@ public class AuthInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        // 将当前用户存入 request 属性，Controller 可通过 @RequestAttribute 获取
         request.setAttribute("currentUser", user);
         return true;
     }

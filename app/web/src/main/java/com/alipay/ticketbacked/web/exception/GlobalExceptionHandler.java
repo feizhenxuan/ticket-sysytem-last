@@ -26,6 +26,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception e) {
         log.error("[全局异常] 类型: {}, 消息: {}", e.getClass().getName(), e.getMessage(), e);
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("detail", "内部错误: " + e.getMessage());
         body.put("exception", e.getClass().getName());
@@ -35,7 +36,7 @@ public class GlobalExceptionHandler {
         StackTraceElement[] st = e.getStackTrace();
         if (st != null && st.length > 0) {
             StringBuilder sb = new StringBuilder();
-            int limit = Math.min(st.length, 15);
+            int limit = Math.min(st.length, 20);
             for (int i = 0; i < limit; i++) {
                 sb.append(st[i].toString()).append('\n');
             }
