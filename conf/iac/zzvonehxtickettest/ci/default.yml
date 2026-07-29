@@ -1,0 +1,84 @@
+version: 1.0
+configs:
+  #配置格式请参考：https://yuque.antfin-inc.com/vlu1sb/yl4rpk/abxg9l
+  #Maven 执行参数
+  #执行时在默认命令上附加执行参数，并不对maven-surefire-plugin下配置的测试用例生效
+  #如果需要对maven-surefire-plugin测试用例生效，需要在pom.xml里设置argLine参数
+  #注意：不要配置 mvn clean install 等命令
+  #  mvnArgs: -Dcom.alipay.confreg.url=127.0.0.1 -Dcom.alipay.ldc.zone=GZ00B
+
+  #是否使用独立的Maven仓库 true/false
+  #  privateRepo: false
+  privateRepo: false
+
+  #是否启动修改pom.xml，值：true/false
+  #true 启用，根据JDK版本自动修改pom.xml, 修改内容有：maven插件版本，surefire的forkMode等相关配置，自动添加jacoco相关配置
+  #  autoPom: true
+  autoPom: true
+
+  #覆盖率统计排除
+  #指定的文件将排除Maven执行中的覆盖率统计。如果需要强制排除覆盖率统计，自动修改pom.xml选择“启用”
+  #使用Jenkins，需要设置为Sonar通配符格式
+  #  coverageExclusions: "**/test/**,**/mock/**,**/dal/**,**/model/**,**/dto/**,**/enum/**,**/enums/**,**/*TestClass*"
+  coverageExclusions: "**/test/**,**/dal/**,**/ibatis/**,**/mybatis/**,**/model/**,**/enums/**,**/enum/**,**/log/**,**/constants/**,**/vo/**,**/*Controller*"
+
+  #用例并行执行控制
+  #在单元测试与集成测试阶段是否开启并行执行
+  #1，使用串行执行, 默认值
+  #>1: 使用指定的并发数执行
+  #  parallelCount: 1
+  parallelCount: 1
+
+  #Host映射
+  #自定义IP映射，可参考 /etc/hosts
+  #  hostmap: |
+  #    127.0.0.1 local.alipay.net
+  #    1.2.3.4 yuanheng.alipay.net
+
+  #设置CI执行机器的分组信息
+  #  aciTags: xxx
+
+  #扫描规则
+  #设置平台所使用的检查规则，默认为：AlipayPMD
+  #  sonarProfile: AlipayPMD，MiddlewarePMD
+
+  #扫描排除项
+  #指定的文件将排除sonar统计，使用sonar进行统计的PMD, 复杂度等数据将不再统计这些文件
+  #  sonarExclusions: "**/test/**,**/mock/**,**/dal/**,**/model/**,**/dto/**,**/enum/**,**/enums/**"
+  sonarExclusions: "**/test/**,**/mock/**,**/dal/**,**/model/**,**/dto/**,**/enum/**,**/enums/**"
+
+  # 系统编码（可选，缺省时默认获取meta元数据配置（即zappinfo中配置的lang）下的服务器编码）
+  # 项目使用的文件编码 UTF-8/GBK
+  #  encoding: UTF-8
+  encoding: UTF-8
+
+  #测试是否依赖oracle
+  #  enableOracle: false
+  enableOracle: false
+
+  #jdk版本（可选，缺省时与meta元数据配置（即软件配置）中的jdk版本相同）
+  #  jdkVersion: 17
+  jdkVersion: 17
+
+  #是否使用power，如果需要采集powermock测试用例的覆盖率，需要设置为true，默认为false
+  #  jacocoPowerMock: false
+  jacocoPowerMock: false
+
+  #是否跳过单元测试/集成测试
+  #  skipCITest:
+  #    unitTest: false
+  #    integrationTest: false
+  skipCITest:
+    unitTest: false
+    integrationTest: false
+
+  #指定用例（分组）配置，设置CI执行执行的用例，默认为空
+  #  aciTestCase: "*Test"
+
+  #指定用例生效范围，设置UT/IT是否使用 “指定执行用例(分组)配置”，默认都生效
+  #  aciTestCaseScope:
+  #    unitTest: true
+  #    integrationTest: true
+  aciTestCaseScope:
+    unitTest: true
+    integrationTest: true

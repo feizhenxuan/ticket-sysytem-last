@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>com.alipay</groupId>
+		<artifactId>ticketbacked-parent</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+		<relativePath>../../../../pom.xml</relativePath>
+	</parent>
+	<artifactId>ticketbacked-common-service-integration</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+
+	<dependencies>
+		<dependency>
+			<groupId>com.alipay</groupId>
+			<artifactId>ticketbacked-common-util</artifactId>
+		</dependency>
+		<!-- Alipay Java SDK（开源版，沙箱可用） -->
+		<dependency>
+			<groupId>com.alipay.sdk</groupId>
+			<artifactId>alipay-sdk-java</artifactId>
+			<version>4.39.79.ALL</version>
+		</dependency>
+
+	</dependencies>
+
+</project>

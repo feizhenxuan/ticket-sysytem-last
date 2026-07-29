@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.ChatSessionMapper">
+
+    <insert id="insert" parameterType="com.alipay.ticketbacked.core.model.ChatSession" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hx_chat_sessions (session_id, user_id, slots, last_intent, context, messages,
+                                      gmt_create, gmt_modify, gmt_expire)
+        VALUES (#{sessionId}, #{userId}, #{slots}, #{lastIntent}, #{context}, #{messages},
+                NOW(), NOW(), #{gmtExpire})
+    </insert>
+
+    <update id="updateSlotsAndContext">
+        UPDATE hx_chat_sessions
+        SET slots = #{slots}, last_intent = #{lastIntent}, context = #{context}, gmt_modify = NOW()
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <update id="appendMessage">
+        UPDATE hx_chat_sessions
+        SET messages = #{messages}, gmt_modify = NOW()
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <update id="updateExpire">
+        UPDATE hx_chat_sessions
+        SET gmt_expire = #{gmtExpire}, gmt_modify = NOW()
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <delete id="deleteBySessionId">
+        DELETE FROM hx_chat_sessions WHERE session_id = #{sessionId}
+    </delete>
+
+</mapper>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.SessionSeatMapper">
+
+    <!-- JOIN hx_seats 获取行列号和类型（GROUP BY 去重） -->
+    <select id="findSessionSeats" resultType="java.util.LinkedHashMap">
+        SELECT ss.seat_id   AS seat_id,
+               s.row_num    AS `row`,
+               s.col_num    AS col,
+               s.seat_type  AS type,
+               ss.status    AS status
+        FROM hx_session_seats ss
+        INNER JOIN hx_seats s ON ss.seat_id = s.id
+        WHERE ss.session_id = #{sessionId}
+        GROUP BY ss.seat_id, s.row_num, s.col_num, s.seat_type, ss.status
+        ORDER BY s.row_num, s.col_num
+    </select>
+
+</mapper>
