@@ -234,7 +234,9 @@ public class ChatAgentService {
                             try {
                                 Map<String, Object> parsed = MAPPER.readValue(tr.responseData(), Map.class);
                                 confirmMsg = (String) parsed.get("message");
-                            } catch (Exception ignored) {}
+                            } catch (Exception e) {
+                                log.warn("[Agent] 解析消歧消息失败", e);
+                            }
                         }
                     }
                     if (needConfirm) {

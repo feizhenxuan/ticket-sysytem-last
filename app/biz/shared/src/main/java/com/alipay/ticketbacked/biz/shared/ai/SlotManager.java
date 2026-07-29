@@ -1,9 +1,6 @@
 package com.alipay.ticketbacked.biz.shared.ai;
 
 import com.alipay.ticketbacked.core.model.ChatSession;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -16,9 +13,6 @@ import java.util.regex.Pattern;
  */
 @Component
 public class SlotManager {
-
-    private static final Logger log = LoggerFactory.getLogger(SlotManager.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     // 电影名：《xxx》 或 「xxx」
     private static final Pattern MOVIE_PATTERN = Pattern.compile(

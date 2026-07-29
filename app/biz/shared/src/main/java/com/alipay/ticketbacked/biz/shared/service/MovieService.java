@@ -1,7 +1,6 @@
 package com.alipay.ticketbacked.biz.shared.service;
 
 import com.alipay.ticketbacked.common.dal.mapper.MovieMapper;
-import com.alipay.ticketbacked.common.dal.mapper.SessionMapper;
 import com.alipay.ticketbacked.core.model.Movie;
 import com.alipay.ticketbacked.core.model.dto.MovieDTO;
 import org.springframework.stereotype.Service;
@@ -16,11 +15,9 @@ import java.util.stream.Collectors;
 public class MovieService {
 
     private final MovieMapper movieMapper;
-    private final SessionMapper sessionMapper;
 
-    public MovieService(MovieMapper movieMapper, SessionMapper sessionMapper) {
+    public MovieService(MovieMapper movieMapper) {
         this.movieMapper = movieMapper;
-        this.sessionMapper = sessionMapper;
     }
 
     /** 电影列表查询，支持三种排序 */

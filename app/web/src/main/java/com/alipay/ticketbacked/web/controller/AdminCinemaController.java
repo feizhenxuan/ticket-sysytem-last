@@ -20,12 +20,10 @@ public class AdminCinemaController {
 
     private final CinemaService cinemaService;
     private final HallMapper hallMapper;
-    private final CinemaMapper cinemaMapper;
 
-    public AdminCinemaController(CinemaService cinemaService, HallMapper hallMapper, CinemaMapper cinemaMapper) {
+    public AdminCinemaController(CinemaService cinemaService, HallMapper hallMapper) {
         this.cinemaService = cinemaService;
         this.hallMapper = hallMapper;
-        this.cinemaMapper = cinemaMapper;
     }
 
     @GetMapping

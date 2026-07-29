@@ -74,7 +74,9 @@ public class ChatController {
                 try {
                     emitter.send(SseEmitter.event().data(
                             MAPPER.writeValueAsString(Map.of("type", "error", "content", "处理出错了"))));
-                } catch (Exception ignored) {}
+                } catch (Exception ex) {
+                    log.error("[SSE] 发送错误事件失败", ex);
+                }
                 emitter.completeWithError(e);
             }
         });

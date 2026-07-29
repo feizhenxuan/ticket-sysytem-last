@@ -42,8 +42,8 @@ public class CinemaController {
                 if (regeo != null && regeo.get("city") != null) {
                     resolvedCity = (String) regeo.get("city");
                 }
-            } catch (Exception ignored) {
-                // This catch statement is intentionally empty
+            } catch (Exception e) {
+                // 逆地理失败时降级使用传入的 city 参数
             }
 
             // 去掉"市"后缀，用关键词模糊匹配（北京 vs 北京市）
