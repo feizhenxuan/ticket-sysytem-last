@@ -117,14 +117,7 @@ public class AgentFunctionConfig {
         });
     }
 
-    @Bean public ToolCallback refundOrder(OrderService os) {
-        return cb("refund_order", "对已支付订单发起退票退款。",
-                "{\"type\":\"object\",\"properties\":{\"order_id\":{\"type\":\"integer\",\"description\":\"订单ID\"},\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID\"}},\"required\":[\"order_id\",\"user_id\"]}",
-                input -> {
-            try { Map<String,Object> a = MAPPER.readValue(input, Map.class); os.refundOrder(((Number)a.get("order_id")).longValue(), ((Number)a.get("user_id")).longValue());
-                return "{\"success\":true,\"message\":\"退款成功\"}"; } catch (Exception e) { return "{\"success\":false,\"message\":\""+e.getMessage()+"\"}"; }
-        });
-    }
+    // refund_order 已移除 — 退票由前端订单卡片按钮触发 GUI 退款流程，LLM 不执行退款操作。
 
     @Bean public ToolCallback getMovieDetail(MovieMapper mm) {
         return cb("get_movie_detail", "查询电影详细信息。",

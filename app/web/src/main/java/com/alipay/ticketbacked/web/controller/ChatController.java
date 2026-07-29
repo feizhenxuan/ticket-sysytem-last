@@ -4,6 +4,8 @@ import com.alipay.ticketbacked.biz.shared.ai.ChatAgentService;
 import com.alipay.ticketbacked.core.model.User;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -23,12 +25,15 @@ public class ChatController {
     private final ObjectMapper MAPPER = new ObjectMapper();
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
+    private static final Logger log = LoggerFactory.getLogger(ChatController.class);
+
     public ChatController(ChatAgentService chatAgentService) {
         this.chatAgentService = chatAgentService;
     }
 
     /**
      * 发送消息，SSE 流式返回对话回复
+     * 通过 Consumer 回调实时推送每个 LLM token chunk，实现真流式输出
      */
     @PostMapping("/send")
     public SseEmitter sendMessage(
@@ -49,13 +54,16 @@ public class ChatController {
 
         executor.execute(() -> {
             try {
-                List<Map<String, Object>> events = chatAgentService.processMessage(
-                        content, sessionId, user.getId(), city, lat, lng);
-
-                for (Map<String, Object> event : events) {
-                    String json = MAPPER.writeValueAsString(event);
-                    emitter.send(SseEmitter.event().data(json));
-                }
+                chatAgentService.processMessage(
+                        content, sessionId, user.getId(), city, lat, lng,
+                        event -> {
+                            try {
+                                String json = MAPPER.writeValueAsString(event);
+                                emitter.send(SseEmitter.event().data(json));
+                            } catch (Exception e) {
+                                log.error("[SSE] 发送事件失败", e);
+                            }
+                        });
                 emitter.complete();
             } catch (Exception e) {
                 try {
