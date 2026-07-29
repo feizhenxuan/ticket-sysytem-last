@@ -2,7 +2,6 @@ package com.alipay.ticketbacked.web.controller;
 
 import com.alipay.ticketbacked.biz.shared.service.CinemaService;
 import com.alipay.ticketbacked.common.dal.mapper.HallMapper;
-import com.alipay.ticketbacked.common.dal.mapper.CinemaMapper;
 import com.alipay.ticketbacked.core.model.Cinema;
 import com.alipay.ticketbacked.core.model.Hall;
 import com.alipay.ticketbacked.core.model.BizException;

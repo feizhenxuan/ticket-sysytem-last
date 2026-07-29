@@ -69,7 +69,7 @@ public class AlipayClientWrapper {
             return getClient().pageExecute(request).getBody();
         } catch (AlipayApiException e) {
             log.error("创建支付表单失败", e);
-            throw new RuntimeException("创建支付表单失败: " + e.getMessage());
+            throw new RuntimeException("创建支付表单失败: " + e.getMessage(), e);
         }
     }
 
