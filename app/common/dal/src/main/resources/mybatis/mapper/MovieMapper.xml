@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.MovieMapper">
+
+    <select id="findOrderByMinPrice" resultType="com.alipay.ticketbacked.core.model.Movie">
+        SELECT m.*, sub.min_price
+        FROM hx_movies m
+        INNER JOIN (
+            SELECT movie_id AS id, MIN(price) AS min_price
+            FROM hx_sessions
+            GROUP BY movie_id
+        ) sub ON sub.id = m.id
+        WHERE m.status = #{status}
+        ORDER BY sub.min_price ASC
+        LIMIT #{limit}
+    </select>
+
+    <insert id="insert" parameterType="com.alipay.ticketbacked.core.model.Movie" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hx_movies (title, rating, duration, genre, director, actors, release_date,
+                               poster_url, description, status, tmdb_id, gmt_create)
+        VALUES (#{title}, #{rating}, #{duration}, #{genre}, #{director}, #{actors}, #{releaseDate},
+                #{posterUrl}, #{description}, #{status}, #{tmdbId}, NOW())
+    </insert>
+
+    <update id="update" parameterType="com.alipay.ticketbacked.core.model.Movie">
+        UPDATE hx_movies
+        SET title=#{title}, rating=#{rating}, duration=#{duration}, genre=#{genre},
+            director=#{director}, actors=#{actors}, release_date=#{releaseDate},
+            poster_url=#{posterUrl}, description=#{description}, status=#{status}, tmdb_id=#{tmdbId}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM hx_movies WHERE id = #{id}
+    </delete>
+
+</mapper>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.SessionMapper">
+
+    <select id="findByMovieIdAndDate" resultType="com.alipay.ticketbacked.core.model.Session">
+        SELECT * FROM hx_sessions
+        WHERE movie_id = #{movieId} AND status != 'closed'
+          AND start_time &gt;= #{startTime} AND start_time &lt; #{endTime}
+        ORDER BY start_time
+    </select>
+
+    <select id="findByCinemaIdAndDate" resultType="com.alipay.ticketbacked.core.model.Session">
+        SELECT * FROM hx_sessions
+        WHERE cinema_id = #{cinemaId} AND status != 'closed'
+          AND start_time &gt;= #{startTime} AND start_time &lt; #{endTime}
+        ORDER BY start_time
+    </select>
+
+    <select id="findByIds" resultType="com.alipay.ticketbacked.core.model.Session">
+        SELECT * FROM hx_sessions WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <insert id="insert" parameterType="com.alipay.ticketbacked.core.model.Session" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hx_sessions (movie_id, cinema_id, hall_id, start_time, end_time, price, status, gmt_create)
+        VALUES (#{movieId}, #{cinemaId}, #{hallId}, #{startTime}, #{endTime}, #{price}, #{status}, NOW())
+    </insert>
+
+    <update id="update" parameterType="com.alipay.ticketbacked.core.model.Session">
+        UPDATE hx_sessions
+        SET movie_id=#{movieId}, cinema_id=#{cinemaId}, hall_id=#{hallId},
+            start_time=#{startTime}, end_time=#{endTime}, price=#{price}, status=#{status}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM hx_sessions WHERE id = #{id}
+    </delete>
+
+</mapper>

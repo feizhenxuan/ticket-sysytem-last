@@ -1,0 +1,7 @@
+# db代码化, 数据源(datasource)及database相关配置
+#version: 1.0
+#configs:
+#  databases:
+#    - database: test_serup_db                 # 数据库名字；单库为物理库名，分库为逻辑库名
+#      shards: 100                             #【可选】，分库数；默认1，单库
+#      ldcMode: R                              #【可选】，部署模式C(Czone)/R(Rzone)/G(Gzone)，单库默认G，分库没有默认，必填
