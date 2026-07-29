@@ -1,6 +1,6 @@
 version: 1.0
 configs:
   databases:
-    - database: zzvonetickettest_ds       # 数据库名字，与 spring.datasource.url 中的库名一致
+    - database: zzvonehxticket             # 数据库名字，与 spring.datasource.url 中的库名一致
       shards: 1                           # 单库
       ldcMode: G                          # 部署模式 G(Gzone)
