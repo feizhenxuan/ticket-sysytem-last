@@ -1,31 +1,14 @@
 package com.alipay.ticketbacked.common.dal;
 
-import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.annotation.MapperScan;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-
-import javax.sql.DataSource;
 
 /**
- * MyBatis 配置 — 参考官方 demo 规范
- * 使用 @Qualifier 绑定 ZdalConfiguration 中创建的 dataSource
- * 通过 @MapperScan + sqlSessionFactoryRef 绑定 Mapper
+ * MyBatis 配置 — 仅扫描 Mapper 接口
+ * SqlSessionFactory 由 mybatis-spring-boot-starter 自动配置
+ * DataSource 由 DDS Starter (dds-alipay-sofa-boot-starter) 自动注入
  */
 @Configuration
-@MapperScan(basePackages = "com.alipay.ticketbacked.common.dal.mapper",
-            sqlSessionFactoryRef = "sqlSessionFactoryBean")
+@MapperScan("com.alipay.ticketbacked.common.dal.mapper")
 public class MyBatisConfig {
-
-    @Bean
-    public SqlSessionFactoryBean sqlSessionFactoryBean(@Qualifier("dataSource") DataSource dataSource) throws Exception {
-        SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
-        factory.setDataSource(dataSource);
-        factory.setMapperLocations(new PathMatchingResourcePatternResolver()
-                .getResources("classpath*:mybatis/mapper/*.xml"));
-        factory.setTypeAliasesPackage("com.alipay.ticketbacked.core.model");
-        return factory;
-    }
 }
