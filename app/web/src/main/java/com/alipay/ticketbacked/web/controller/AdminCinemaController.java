@@ -11,7 +11,6 @@ import com.alipay.ticketbacked.core.model.Hall;
 import com.alipay.ticketbacked.core.model.Seat;
 import com.alipay.ticketbacked.core.model.Session;
 import com.alipay.ticketbacked.core.model.BizException;
-import com.alipay.ticketbacked.core.model.dto.CinemaDTO;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -226,7 +225,9 @@ public class AdminCinemaController {
                         // 4. 批量创建场次座位状态（一条SQL）
                         sessionSeatMapper.initSeatsForSession(session.getId(), hall.getId());
                         seatStatusCount += rows * cols;
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                        // This catch statement is intentionally empty
+                    }
                     mi++;
                 }
             }
