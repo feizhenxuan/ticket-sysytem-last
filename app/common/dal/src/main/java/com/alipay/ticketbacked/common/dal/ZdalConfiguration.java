@@ -29,7 +29,7 @@ public class ZdalConfiguration {
                 .appName("zzvonehxtickettest")
                 .appDsName("zzvonehxticket")
                 .version("mesh")
-                .useDbMesh(false)
+                .useDbMesh(true)
                 .build();
     }
 
