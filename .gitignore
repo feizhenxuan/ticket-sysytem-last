@@ -5,6 +5,7 @@ target/
 logs/
 *.log
 .DS_Store
+${ctx:log_root}/
 
 ### STS ###
 .apt_generated

@@ -53,10 +53,13 @@ public class AlipayClientWrapper {
     }
 
     /** 创建支付宝支付表单 HTML — 对应 Python create_payment_url
-     *  pageExecute().getBody() 返回自提交 HTML <form>，前端需用 document.write 渲染 */
-    public String createPaymentForm(String orderNo, String amount, String subject) {
+     *  pageExecute().getBody() 返回自提交 HTML <form>，前端需用 document.write 渲染
+     *  @param returnUrlOverride 前端动态传入的 return_url（优先使用，避免硬编码端口不匹配） */
+    public String createPaymentForm(String orderNo, String amount, String subject, String returnUrlOverride) {
         AlipayTradePagePayRequest request = new AlipayTradePagePayRequest();
-        request.setReturnUrl(returnUrl);
+        String effectiveReturnUrl = (returnUrlOverride != null && !returnUrlOverride.isBlank())
+                ? returnUrlOverride : returnUrl;
+        request.setReturnUrl(effectiveReturnUrl);
         if (notifyUrl != null && !notifyUrl.isBlank()) {
             request.setNotifyUrl(notifyUrl);
         }
@@ -71,6 +74,11 @@ public class AlipayClientWrapper {
             log.error("创建支付表单失败", e);
             throw new RuntimeException("创建支付表单失败: " + e.getMessage(), e);
         }
+    }
+
+    /** 兼容旧调用（使用配置文件中的 return_url） */
+    public String createPaymentForm(String orderNo, String amount, String subject) {
+        return createPaymentForm(orderNo, amount, subject, null);
     }
 
     /** 验签支付宝异步通知 — 对应 Python verify_notify */

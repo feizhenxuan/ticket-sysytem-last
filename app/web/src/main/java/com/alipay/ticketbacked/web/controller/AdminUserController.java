@@ -26,7 +26,8 @@ public class AdminUserController {
                                     @RequestParam(defaultValue = "20") int limit,
                                     @RequestParam(defaultValue = "0") int offset) {
         List<User> users = userMapper.findAllForAdmin(is_active, search, Math.min(limit, 100), offset);
-        return Map.of("items", users, "total", users.size());
+        int total = userMapper.countAllForAdmin(is_active, search);
+        return Map.of("items", users, "total", total);
     }
 
     @GetMapping("/{id}")

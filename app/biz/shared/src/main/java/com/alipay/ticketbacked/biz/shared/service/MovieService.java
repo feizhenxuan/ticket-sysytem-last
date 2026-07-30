@@ -20,10 +20,13 @@ public class MovieService {
         this.movieMapper = movieMapper;
     }
 
-    /** 电影列表查询，支持三种排序 */
+    /** 电影列表查询，支持三种排序。status 为 null/空时不过滤状态 */
     public List<MovieDTO> listMovies(String sort, String status, int limit) {
         List<Movie> movies;
-        if ("price".equals(sort)) {
+        boolean hasStatus = status != null && !status.isBlank();
+        if (!hasStatus) {
+            movies = movieMapper.findAllOrderByRating(limit);
+        } else if ("price".equals(sort)) {
             movies = movieMapper.findOrderByMinPrice(status, limit);
         } else if ("release".equals(sort)) {
             movies = movieMapper.findByStatusOrderByRelease(status, limit);

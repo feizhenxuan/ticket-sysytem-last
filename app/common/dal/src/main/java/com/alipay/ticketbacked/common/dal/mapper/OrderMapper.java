@@ -50,4 +50,13 @@ public interface OrderMapper {
 
     /** Admin: 电影票房排行（按已支付订单的 ticket_count * price 汇总） */
     List<java.util.Map<String, Object>> movieRanking(@Param("limit") int limit);
+
+    /** Admin: 订单列表（带关联数据：用户名、电影名、影院名、场次时间、影厅名） */
+    List<java.util.Map<String, Object>> findAllForAdminWithDetails(@Param("status") String status, @Param("limit") int limit, @Param("offset") int offset);
+
+    /** Admin: 订单总数（按状态过滤） */
+    int countAllForAdmin(@Param("status") String status);
+
+    /** Admin: 订单详情（带关联数据） */
+    java.util.Map<String, Object> findByIdWithDetails(@Param("id") Long id);
 }

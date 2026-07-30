@@ -28,13 +28,14 @@ public class AdminOrderController {
     public Map<String, Object> list(@RequestParam(required = false) String status,
                                     @RequestParam(defaultValue = "20") int limit,
                                     @RequestParam(defaultValue = "0") int offset) {
-        List<Order> orders = orderMapper.findAllForAdmin(status, Math.min(limit, 100), offset);
-        return Map.of("items", orders, "total", orders.size());
+        List<java.util.Map<String, Object>> orders = orderMapper.findAllForAdminWithDetails(status, Math.min(limit, 100), offset);
+        int total = orderMapper.countAllForAdmin(status);
+        return Map.of("items", orders, "total", total);
     }
 
     @GetMapping("/{id}")
-    public Order detail(@PathVariable Long id) {
-        Order order = orderMapper.findById(id);
+    public Map<String, Object> detail(@PathVariable Long id) {
+        java.util.Map<String, Object> order = orderMapper.findByIdWithDetails(id);
         if (order == null) throw BizException.notFound("订单不存在");
         return order;
     }

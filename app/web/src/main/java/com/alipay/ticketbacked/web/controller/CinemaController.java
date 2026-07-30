@@ -31,6 +31,7 @@ public class CinemaController {
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) Integer radius,
             @RequestParam(defaultValue = "50") int limit) {
         limit = Math.max(1, Math.min(limit, 100));
 
@@ -48,7 +49,7 @@ public class CinemaController {
 
             // 去掉"市"后缀，用关键词模糊匹配（北京 vs 北京市）
             String keyword = resolvedCity != null ? resolvedCity.replace("市", "").replace("省", "") : null;
-            List<CinemaDTO> items = cinemaService.listCinemasNearby(keyword, lat, lng, limit);
+            List<CinemaDTO> items = cinemaService.listCinemasNearby(keyword, lat, lng, radius, limit);
             Map<String, Object> result = new HashMap<>();
             result.put("items", items);
             result.put("total", items.size());
@@ -58,7 +59,7 @@ public class CinemaController {
         }
 
         // 无坐标时按城市过滤
-        List<CinemaDTO> items = cinemaService.listCinemasNearby(city, null, null, limit);
+        List<CinemaDTO> items = cinemaService.listCinemasNearby(city, null, null, null, limit);
         Map<String, Object> result = new HashMap<>();
         result.put("items", items);
         result.put("total", items.size());

@@ -21,7 +21,7 @@ public class AdminMovieController {
     }
 
     @GetMapping
-    public Object list(@RequestParam(defaultValue = "showing") String status,
+    public Object list(@RequestParam(required = false) String status,
                        @RequestParam(defaultValue = "50") int limit) {
         var items = movieService.listMovies("rating", status, Math.min(limit, 100));
         return Map.of("items", items, "total", items.size());

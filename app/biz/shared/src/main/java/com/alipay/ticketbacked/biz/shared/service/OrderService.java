@@ -29,17 +29,19 @@ public class OrderService {
     private final MovieMapper movieMapper;
     private final CinemaMapper cinemaMapper;
     private final HallMapper hallMapper;
+    private final SeatMapper seatMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public OrderService(OrderMapper orderMapper, SessionMapper sessionMapper,
                         SessionSeatMapper sessionSeatMapper, MovieMapper movieMapper,
-                        CinemaMapper cinemaMapper, HallMapper hallMapper) {
+                        CinemaMapper cinemaMapper, HallMapper hallMapper, SeatMapper seatMapper) {
         this.orderMapper = orderMapper;
         this.sessionMapper = sessionMapper;
         this.sessionSeatMapper = sessionSeatMapper;
         this.movieMapper = movieMapper;
         this.cinemaMapper = cinemaMapper;
         this.hallMapper = hallMapper;
+        this.seatMapper = seatMapper;
     }
 
     /** 创建订单（锁定座位） */
@@ -139,6 +141,76 @@ public class OrderService {
 
     public Order getOrder(Long orderId, Long userId) {
         return orderMapper.findByIdAndUser(orderId, userId);
+    }
+
+    /** 获取订单完整详情（含电影/影院/影厅/场次/座位信息） */
+    public Map<String, Object> getOrderDetail(Long orderId, Long userId) {
+        Order order = orderMapper.findByIdAndUser(orderId, userId);
+        if (order == null) return null;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", order.getId());
+        result.put("order_no", order.getOrderNo());
+        result.put("session_id", order.getSessionId());
+        result.put("seat_ids", order.getSeatIds());
+        result.put("ticket_count", order.getTicketCount());
+        result.put("total_amount", order.getTotalAmount());
+        result.put("status", order.getStatus());
+        result.put("trade_no", order.getTradeNo());
+        result.put("pickup_code", order.getPickupCode());
+        result.put("created_at", order.getGmtCreate());
+        result.put("paid_at", order.getPaidAt());
+        result.put("cancelled_at", order.getCancelledAt());
+        result.put("refunded_at", order.getRefundedAt());
+
+        // 场次信息
+        Session session = sessionMapper.findById(order.getSessionId());
+        if (session != null) {
+            result.put("start_time", session.getStartTime());
+            result.put("end_time", session.getEndTime());
+            result.put("price", session.getPrice());
+
+            Movie movie = movieMapper.findById(session.getMovieId());
+            if (movie != null) {
+                result.put("movie_title", movie.getTitle());
+                result.put("movie_genre", movie.getGenre());
+                result.put("movie_duration", movie.getDuration());
+                result.put("poster_url", movie.getPosterUrl());
+            }
+
+            Cinema cinema = cinemaMapper.findById(session.getCinemaId());
+            if (cinema != null) {
+                result.put("cinema_name", cinema.getName());
+                result.put("cinema_address", cinema.getAddress());
+            }
+
+            Hall hall = hallMapper.findById(session.getHallId());
+            if (hall != null) {
+                result.put("hall_name", hall.getName());
+                result.put("hall_type", hall.getHallType());
+            }
+
+            // 座位详情
+            List<Map<String, Object>> seatDetails = new ArrayList<>();
+            try {
+                List<Integer> seatIdList = objectMapper.readValue(order.getSeatIds(), List.class);
+                for (Integer sid : seatIdList) {
+                    Seat seat = seatMapper.findById(sid.longValue());
+                    if (seat != null) {
+                        Map<String, Object> sd = new LinkedHashMap<>();
+                        sd.put("row", seat.getRowNum());
+                        sd.put("col", seat.getColNum());
+                        sd.put("type", seat.getSeatType());
+                        seatDetails.add(sd);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[getOrderDetail] 解析座位ID失败: {}", order.getSeatIds());
+            }
+            result.put("seats", seatDetails);
+        }
+
+        return result;
     }
 
     /** 取消订单（释放座位） */

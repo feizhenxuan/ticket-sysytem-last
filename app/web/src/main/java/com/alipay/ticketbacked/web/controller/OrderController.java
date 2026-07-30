@@ -42,9 +42,9 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    public Order getOrder(@PathVariable Long id, HttpServletRequest request) {
+    public Map<String, Object> getOrder(@PathVariable Long id, HttpServletRequest request) {
         User user = (User) request.getAttribute("currentUser");
-        Order order = orderService.getOrder(id, user.getId());
+        Map<String, Object> order = orderService.getOrderDetail(id, user.getId());
         if (order == null) throw BizException.notFound("订单不存在");
         return order;
     }

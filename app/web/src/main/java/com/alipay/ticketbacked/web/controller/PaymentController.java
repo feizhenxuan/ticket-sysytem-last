@@ -6,6 +6,8 @@ import com.alipay.ticketbacked.core.model.Order;
 import com.alipay.ticketbacked.core.model.User;
 import com.alipay.ticketbacked.core.model.BizException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -18,6 +20,8 @@ import java.util.Map;
 @RequestMapping("/api/pay")
 public class PaymentController {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentController.class);
+
     private final OrderService orderService;
     private final AlipayClientWrapper alipayClient;
 
@@ -27,18 +31,21 @@ public class PaymentController {
     }
 
     @GetMapping("/create")
-    public Map<String, Object> createPayment(@RequestParam Long order_id, HttpServletRequest request) {
+    public Map<String, Object> createPayment(
+            @RequestParam Long order_id,
+            @RequestParam(required = false) String return_url,
+            HttpServletRequest request) {
         User user = (User) request.getAttribute("currentUser");
         Order order = orderService.getOrder(order_id, user.getId());
         if (order == null) throw BizException.notFound("订单不存在");
         if (!"pending".equals(order.getStatus())) throw BizException.badRequest("订单状态不可支付");
 
-        // 查电影名作为支付标题
         String subject = "电影票-" + order.getOrderNo();
         String payForm = alipayClient.createPaymentForm(
                 order.getOrderNo(),
                 order.getTotalAmount().toPlainString(),
-                subject
+                subject,
+                return_url
         );
         return Map.of("pay_form", payForm);
     }
@@ -52,7 +59,35 @@ public class PaymentController {
     }
 
     @PostMapping("/notify")
-    public String payNotify() {
+    public String payNotify(HttpServletRequest request) {
+        Map<String, String> params = new HashMap<>();
+        request.getParameterMap().forEach((key, values) -> {
+            if (values != null && values.length > 0) {
+                params.put(key, values[0]);
+            }
+        });
+
+        log.info("[payNotify] 收到支付宝异步通知: trade_no={}, out_trade_no={}, trade_status={}",
+                params.get("trade_no"), params.get("out_trade_no"), params.get("trade_status"));
+
+        // 验签
+        if (!alipayClient.verifyNotify(params)) {
+            log.warn("[payNotify] 验签失败: out_trade_no={}", params.get("out_trade_no"));
+            return "fail";
+        }
+
+        // 只处理交易成功状态
+        String tradeStatus = params.get("trade_status");
+        if (!"TRADE_SUCCESS".equals(tradeStatus) && !"TRADE_FINISHED".equals(tradeStatus)) {
+            log.info("[payNotify] 非成功交易状态，忽略: {}", tradeStatus);
+            return "success";
+        }
+
+        String orderNo = params.get("out_trade_no");
+        String tradeNo = params.get("trade_no");
+        Map<String, Object> result = orderService.confirmPayment(orderNo, tradeNo);
+        log.info("[payNotify] 订单确认结果: orderNo={}, result={}", orderNo, result);
+
         return "success";
     }
 

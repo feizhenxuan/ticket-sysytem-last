@@ -21,4 +21,7 @@ public interface UserMapper {
 
     /** Admin: 用户列表 */
     List<User> findAllForAdmin(@Param("isActive") Boolean isActive, @Param("search") String search, @Param("limit") int limit, @Param("offset") int offset);
+
+    /** Admin: 用户总数（按条件过滤） */
+    int countAllForAdmin(@Param("isActive") Boolean isActive, @Param("search") String search);
 }

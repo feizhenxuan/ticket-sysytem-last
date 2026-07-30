@@ -3,17 +3,19 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.alipay.ticketbacked.common.dal.mapper.SessionSeatMapper">
 
-    <!-- JOIN hx_seats 获取行列号和类型（GROUP BY 去重） -->
+    <!-- JOIN hx_seats 获取行列号和类型
+         注意：GROUP BY 不包含 ss.status，避免同一座位的重复行产生多条记录
+         MAX(status) 按字母序取最严格状态：'sold' > 'locked' > 'available' -->
     <select id="findSessionSeats" resultType="java.util.LinkedHashMap">
         SELECT ss.seat_id   AS seat_id,
                s.row_num    AS `row`,
                s.col_num    AS col,
                s.seat_type  AS type,
-               ss.status    AS status
+               MAX(ss.status) AS status
         FROM hx_session_seats ss
         INNER JOIN hx_seats s ON ss.seat_id = s.id
         WHERE ss.session_id = #{sessionId}
-        GROUP BY ss.seat_id, s.row_num, s.col_num, s.seat_type, ss.status
+        GROUP BY ss.seat_id, s.row_num, s.col_num, s.seat_type
         ORDER BY s.row_num, s.col_num
     </select>
 

@@ -65,9 +65,45 @@ public class ChatAgentService {
             ChatSession session = getOrCreateSession(sessionId, userId);
             saveMessage(sessionId, "user", content);
 
-            // 2. 意图识别（服务端规则）
+            // 2. 意图识别（正则优先）
             IntentDetector.Intent intent = intentDetector.detect(content);
-            log.info("[Agent] 意图识别: intent={}, text={}", intent, content);
+            Map<String, Object> extracted = slotManager.extract(content, session);
+            log.info("[Agent] 正则识别: intent={}, slots={}, text={}", intent, extracted, content);
+
+            // 2b. LLM 兜底：正则不够自信时调用 LLM 补充意图和槽位
+            boolean needLLM = false;
+            // 条件1: 意图不明确（QUERY_MOVIE 可能是兜底返回的）
+            if (!isIntentConfident(content, intent) && !isGreeting(content)) {
+                needLLM = true;
+            }
+            // 条件2: 消息明显包含信息但正则抽不到任何槽位
+            if (!needLLM && extracted.isEmpty() && content.length() > 5 && !isGreeting(content)) {
+                // 只有当意图不是 reject/refund/order 这种不需要槽位的才需要 LLM
+                if (intent != IntentDetector.Intent.REJECT
+                        && intent != IntentDetector.Intent.QUERY_ORDER) {
+                    needLLM = true;
+                }
+            }
+            // 条件3: 消息含绝对日期但正则没抽到时间槽位
+            if (!needLLM && containsAbsoluteDate(content) && !extracted.containsKey("time_expression")) {
+                needLLM = true;
+            }
+
+            if (needLLM) {
+                log.info("[Agent] 触发 LLM 兜底抽取");
+                LlmExtractionResult llmResult = llmExtract(content);
+                // LLM 意图只在正则不够自信时覆盖
+                if (llmResult.intent != null && !isIntentConfident(content, intent)) {
+                    intent = llmResult.intent;
+                    log.info("[Agent] LLM 修正意图: {}", intent);
+                }
+                // LLM 槽位只补充正则没抽到的，不覆盖正则已有的
+                for (Map.Entry<String, Object> entry : llmResult.slots.entrySet()) {
+                    if (!extracted.containsKey(entry.getKey())) {
+                        extracted.put(entry.getKey(), entry.getValue());
+                    }
+                }
+            }
 
             // reject 意图直接返回固定话术
             if (intent == IntentDetector.Intent.REJECT) {
@@ -78,10 +114,9 @@ public class ChatAgentService {
                 return;
             }
 
-            // 3. 服务端槽位抽取
-            Map<String, Object> extracted = slotManager.extract(content, session);
+            // 3. 合并槽位到 session
             if (!extracted.isEmpty()) {
-                log.info("[Agent] 槽位抽取: {}", extracted);
+                log.info("[Agent] 最终槽位: {}", extracted);
                 mergeSlots(session, extracted, city);
             }
 
@@ -95,6 +130,9 @@ public class ChatAgentService {
             }
             if (city != null && !city.isBlank()) {
                 systemContent += "\n用户当前定位城市: " + city;
+            }
+            if (lat != null && lng != null) {
+                systemContent += "\n用户当前定位经纬度: lng=" + lng + ", lat=" + lat;
             }
 
             // 5. 构建消息列表（含完整历史 — user + assistant）
@@ -201,6 +239,10 @@ public class ChatAgentService {
 
                         ToolCallback callback = findCallback(toolName);
                         if (callback != null) {
+                            // 为 search_sessions 注入用户定位，确保按5km范围过滤
+                            if ("search_sessions".equals(toolName) && lat != null && lng != null) {
+                                toolArgs = injectLocationIntoArgs(toolArgs, lat, lng);
+                            }
                             String result;
                             try {
                                 result = callback.call(toolArgs);
@@ -266,8 +308,8 @@ public class ChatAgentService {
                 log.warn("[Agent] 超过最大迭代次数 {}", MAX_ITERATIONS);
             }
 
-            // 7. 保存 AI 回复
-            saveMessage(sessionId, "assistant", fullReply);
+            // 7. 保存 AI 回复（连同卡片数据一起存储，供历史记录回显）
+            saveMessage(sessionId, "assistant", fullReply, pendingCards);
 
             // 8. 推送积攒的卡片（文字回复完后再推卡片，视觉顺序更好）
             for (Map<String, Object> cardEvent : pendingCards) {
@@ -372,6 +414,109 @@ public class ChatAgentService {
 
     // ===== Private helpers =====
 
+    /** LLM 抽取结果 */
+    private static class LlmExtractionResult {
+        IntentDetector.Intent intent = null;
+        Map<String, Object> slots = new LinkedHashMap<>();
+    }
+
+    /**
+     * LLM 兜底抽取意图 + 槽位。
+     * 只用在正则无法覆盖的场景，不替代正则。
+     * 返回 LLM 识别到的结果，调用方负责与正则结果合并。
+     */
+    private LlmExtractionResult llmExtract(String text) {
+        LlmExtractionResult result = new LlmExtractionResult();
+        try {
+            String extractPrompt = """
+                    从以下用户消息中抽取意图和槽位，严格返回 JSON（不要有任何额外文字）。
+
+                    意图只能选一个:
+                    - book_ticket:   购票 / 订票 / 想看某部电影
+                    - refund_ticket: 退票 / 退款 / 取消订单
+                    - query_movie:   查电影 / 电影推荐 / 什么电影好看
+                    - query_cinema:  查影院 / 附近影院 / 哪里有IMAX
+                    - query_order:   查订单 / 我的票 / 取票码
+                    - reject:        闲聊 / 与购票无关
+
+                    槽位:
+                    - movie_name:     电影名称（不含书名号）
+                    - cinema_name:    影院名称（不含"影院"等后缀也行，保留用户原话）
+                    - time_expression: 时间表达，包括绝对日期如"7月15号"、"下周五"，相对日期如"明天"、"后天"，时间段如"晚上"、"下午3点"
+                    - ticket_count:   购票数量（纯数字字符串）
+
+                    规则:
+                    1. 没有出现的槽位不要返回对应 key。
+                    2. intent 必填，slots 可空 {}。
+                    3. 严格 JSON 格式: {"intent":"book_ticket","slots":{"movie_name":"沙丘3","time_expression":"7月15号晚上"}}
+
+                    用户消息: %s
+                    """;
+
+            Prompt prompt = new Prompt(String.format(extractPrompt, text));
+            ChatResponse resp = chatModel.call(prompt);
+            String raw = resp.getResult().getOutput().getText();
+
+            // 提取 JSON（兼容 LLM 可能包裹 ```json ... ``` 的情况）
+            if (raw != null) {
+                int start = raw.indexOf('{');
+                int end = raw.lastIndexOf('}');
+                if (start >= 0 && end > start) {
+                    String json = raw.substring(start, end + 1);
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> parsed = MAPPER.readValue(json, Map.class);
+
+                    String intentStr = (String) parsed.get("intent");
+                    if (intentStr != null) {
+                        try {
+                            result.intent = IntentDetector.Intent.valueOf(intentStr.toUpperCase());
+                        } catch (IllegalArgumentException ignored) {
+                            // LLM 返回了未知意图，保持 null
+                        }
+                    }
+
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> llmSlots = (Map<String, Object>) parsed.get("slots");
+                    if (llmSlots != null) {
+                        result.slots.putAll(llmSlots);
+                    }
+                }
+            }
+            log.info("[Agent] LLM兜底抽取: intent={}, slots={}", result.intent, result.slots);
+        } catch (Exception e) {
+            log.warn("[Agent] LLM兜底抽取异常, 回退到纯正则结果: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    /** 判断正则意图识别是否命中了明确的模式（非兜底） */
+    private boolean isIntentConfident(String text, IntentDetector.Intent intent) {
+        if (intent == IntentDetector.Intent.REFUND_TICKET
+                || intent == IntentDetector.Intent.BOOK_TICKET
+                || intent == IntentDetector.Intent.QUERY_CINEMA
+                || intent == IntentDetector.Intent.QUERY_ORDER) {
+            return true;
+        }
+        // QUERY_MOVIE 可能是真实命中也可能是兜底，需要二次确认
+        if (intent == IntentDetector.Intent.QUERY_MOVIE) {
+            String lower = text.trim();
+            return lower.matches(".*(什么电影|有什么电影|电影推荐|推荐.*电影|评分.*高|最近.*上映|热映|正在.*映|好看.*电影).*");
+        }
+        return false;
+    }
+
+    /** 判断是否为打招呼 */
+    private boolean isGreeting(String text) {
+        String lower = text.trim().toLowerCase();
+        return lower.length() <= 6 && (lower.contains("你好") || lower.contains("hi")
+                || lower.contains("hello") || lower.contains("在吗"));
+    }
+
+    /** 判断消息是否包含绝对日期（正则可能无法抽取的） */
+    private boolean containsAbsoluteDate(String text) {
+        return text != null && text.matches(".*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*[号日].*");
+    }
+
     private static class ToolCallBuilder {
         String id;
         String name;
@@ -409,6 +554,11 @@ public class ChatAgentService {
 
     @SuppressWarnings("unchecked")
     private void saveMessage(String sessionId, String role, String content) {
+        saveMessage(sessionId, role, content, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void saveMessage(String sessionId, String role, String content, List<Map<String, Object>> cards) {
         ChatSession session = chatSessionMapper.findBySessionId(sessionId);
         if (session == null) return;
 
@@ -418,6 +568,9 @@ public class ChatAgentService {
         msg.put("role", role);
         msg.put("content", content);
         msg.put("timestamp", LocalDateTime.now().toString());
+        if (cards != null && !cards.isEmpty()) {
+            msg.put("cards", cards);
+        }
         messages.add(msg);
 
         try {
@@ -463,6 +616,20 @@ public class ChatAgentService {
                 .filter(tc -> tc.getToolDefinition() != null && name.equals(tc.getToolDefinition().name()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /** 向 search_sessions 的工具参数 JSON 中注入用户经纬度 */
+    @SuppressWarnings("unchecked")
+    private String injectLocationIntoArgs(String toolArgs, Double lat, Double lng) {
+        try {
+            Map<String, Object> args = MAPPER.readValue(toolArgs, Map.class);
+            args.put("lat", lat);
+            args.put("lng", lng);
+            return MAPPER.writeValueAsString(args);
+        } catch (Exception e) {
+            log.warn("[Agent] 注入定位失败, 原始参数: {}", toolArgs);
+            return toolArgs;
+        }
     }
 
     @SuppressWarnings("unchecked")

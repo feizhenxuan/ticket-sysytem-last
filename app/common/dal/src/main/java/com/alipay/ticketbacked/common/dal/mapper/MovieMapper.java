@@ -14,6 +14,9 @@ public interface MovieMapper {
     @Select("SELECT * FROM hx_movies WHERE status = #{status} ORDER BY rating DESC LIMIT #{limit}")
     List<Movie> findByStatusOrderByRating(@Param("status") String status, @Param("limit") int limit);
 
+    @Select("SELECT * FROM hx_movies ORDER BY rating DESC LIMIT #{limit}")
+    List<Movie> findAllOrderByRating(@Param("limit") int limit);
+
     @Select("SELECT * FROM hx_movies WHERE status = #{status} ORDER BY release_date DESC LIMIT #{limit}")
     List<Movie> findByStatusOrderByRelease(@Param("status") String status, @Param("limit") int limit);
 

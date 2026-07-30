@@ -11,6 +11,7 @@ import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -78,28 +79,114 @@ public class AgentFunctionConfig {
         });
     }
 
+    private static final double EARTH_RADIUS_KM = 6371.0;
+
+    /** Haversine 公式计算两点间距离（公里） */
+    private static double haversineKm(double lng1, double lat1, double lng2, double lat2) {
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
     @Bean public ToolCallback searchSessions(MovieMapper mm, CinemaMapper cm, SessionMapper sm) {
-        return cb("search_sessions", "查询某电影的排片场次，电影名和影院名支持模糊匹配。",
-                "{\"type\":\"object\",\"properties\":{\"movie_name\":{\"type\":\"string\",\"description\":\"电影名称\"},\"cinema_name\":{\"type\":\"string\",\"description\":\"影院名称(可选)\"}},\"required\":[\"movie_name\"]}",
+        return cb("search_sessions", "查询某电影的排片场次。只返回用户定位5公里范围内的影院、且为当天及以后的场次。电影名和影院名支持模糊匹配。可指定具体日期过滤。",
+                "{\"type\":\"object\",\"properties\":{\"movie_name\":{\"type\":\"string\",\"description\":\"电影名称\"},\"cinema_name\":{\"type\":\"string\",\"description\":\"影院名称(可选)\"},\"date\":{\"type\":\"string\",\"description\":\"指定日期 yyyy-MM-dd 格式(可选,如2026-07-15)\"},\"lat\":{\"type\":\"number\",\"description\":\"用户纬度(系统自动注入)\"},\"lng\":{\"type\":\"number\",\"description\":\"用户经度(系统自动注入)\"}},\"required\":[\"movie_name\"]}",
                 input -> {
             try {
                 Map<String,Object> a = MAPPER.readValue(input, Map.class);
                 String movieName = (String) a.get("movie_name"), cinemaName = (String) a.get("cinema_name");
+                String dateStr = (String) a.get("date");
+                double userLat = a.containsKey("lat") ? ((Number) a.get("lat")).doubleValue() : -1;
+                double userLng = a.containsKey("lng") ? ((Number) a.get("lng")).doubleValue() : -1;
+                boolean hasLocation = userLat > 0 && userLng > 0;
+
+                // 解析日期参数
+                java.time.LocalDate filterDate = null;
+                if (dateStr != null && !dateStr.isBlank()) {
+                    try {
+                        // 支持 yyyy-MM-dd 或 yyyy-MM-dd 后面跟时间段
+                        String datePart = dateStr.trim().split("\\s+")[0];
+                        filterDate = java.time.LocalDate.parse(datePart);
+                    } catch (Exception ignored) {
+                        // 日期解析失败，忽略不按日期过滤
+                    }
+                }
+
                 List<Movie> mm2 = mm.searchByKeyword(movieName, "showing", 10);
                 if (mm2.isEmpty()) mm2 = mm.searchByKeyword(movieName, "coming", 10);
                 if (mm2.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到电影: "+movieName)));
                 if (mm2.size() > 1) { List<String> t = mm2.stream().map(Movie::getTitle).collect(Collectors.toList()); return MAPPER.writeValueAsString(List.of(Map.of("need_confirmation",true,"type","movie","options",t,"message","找到多部电影："+String.join(" / ",t)))); }
                 Movie movie = mm2.get(0);
+
+                // 日期过滤：只返回当天及以后的场次
+                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime farFuture = now.plusYears(1);
+
+                // 影院过滤逻辑
                 List<Session> sessions;
                 if (cinemaName != null && !cinemaName.isBlank()) {
+                    // 用户指定了影院名 —— 只是按该影院查
                     List<Cinema> cm2 = cm.searchByName(cinemaName, 5);
                     if (cm2.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到影院: "+cinemaName)));
                     if (cm2.size() > 1) { List<String> n = cm2.stream().map(Cinema::getName).collect(Collectors.toList()); return MAPPER.writeValueAsString(List.of(Map.of("need_confirmation",true,"type","cinema","options",n,"message","找到多家影院："+String.join(" / ",n)))); }
                     sessions = sm.findByMovieAndCinema(movie.getId(), cm2.get(0).getId());
-                } else sessions = sm.findByMovieId(movie.getId());
-                if (sessions.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到场次")));
+                    // 再按日期过滤
+                    sessions = sessions.stream()
+                            .filter(s -> s.getStartTime() != null && !s.getStartTime().isBefore(now))
+                            .collect(Collectors.toList());
+                } else if (hasLocation) {
+                    // 未指定影院但有用户定位 —— 只查5km范围内的影院的场次
+                    List<Cinema> allCinemas = cm.findAllNoLimit();
+                    Set<Long> nearbyCinemaIds = allCinemas.stream()
+                            .filter(c -> c.getLongitude() != null && c.getLatitude() != null)
+                            .filter(c -> haversineKm(userLng, userLat,
+                                    c.getLongitude().doubleValue(), c.getLatitude().doubleValue()) <= 5.0)
+                            .map(Cinema::getId)
+                            .collect(Collectors.toSet());
+                    if (nearbyCinemaIds.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","您附近5公里内暂无影院有排片")));
+                    // 查该电影的所有场次，再在内存按日期+附近影院过滤
+                    sessions = sm.findByMovieIdAndDate(movie.getId(), now, farFuture);
+                    sessions = sessions.stream()
+                            .filter(s -> nearbyCinemaIds.contains(s.getCinemaId()))
+                            .collect(Collectors.toList());
+                } else {
+                    // 无定位也未指定影院 —— 查所有当天及以后的场次
+                    sessions = sm.findByMovieIdAndDate(movie.getId(), now, farFuture);
+                }
+
+                if (sessions.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到当天及以后的场次")));
+
+                // 按指定日期过滤场次
+                if (filterDate != null) {
+                    java.time.LocalDate fDate = filterDate;
+                    sessions = sessions.stream()
+                            .filter(s -> s.getStartTime() != null
+                                    && s.getStartTime().toLocalDate().equals(fDate))
+                            .collect(java.util.stream.Collectors.toList());
+                    if (sessions.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","该日期没有找到排片")));
+                }
+
+                // 构建 cinemaId -> Cinema 的映射
+                Map<Long, Cinema> cinemaMap = cm.findAllNoLimit().stream()
+                        .collect(Collectors.toMap(Cinema::getId, c -> c, (a1, b1) -> a1));
+
                 List<Map<String,Object>> items = new ArrayList<>();
-                for (Session s : sessions) { var i = new LinkedHashMap<String,Object>(); i.put("id",s.getId()); i.put("start_time",s.getStartTime()!=null?s.getStartTime().toString():""); i.put("end_time",s.getEndTime()!=null?s.getEndTime().toString():""); i.put("price",s.getPrice()); i.put("status",s.getStatus()); i.put("movie_title",movie.getTitle()); items.add(i); }
+                for (Session s : sessions) {
+                    var i = new LinkedHashMap<String,Object>();
+                    i.put("id", s.getId());
+                    i.put("start_time", s.getStartTime() != null ? s.getStartTime().toString() : "");
+                    i.put("end_time", s.getEndTime() != null ? s.getEndTime().toString() : "");
+                    i.put("price", s.getPrice());
+                    i.put("status", s.getStatus());
+                    i.put("movie_title", movie.getTitle());
+                    Cinema cin = cinemaMap.get(s.getCinemaId());
+                    i.put("cinema_id", s.getCinemaId());
+                    i.put("cinema_name", cin != null ? cin.getName() : "");
+                    items.add(i);
+                }
                 return MAPPER.writeValueAsString(items);
             } catch (Exception e) { return "[{\"error\":\"查询场次失败\"}]"; }
         });
@@ -137,6 +224,76 @@ public class AgentFunctionConfig {
                 var dtos = ms.recommendMovies(genre, limit); List<Map<String,Object>> r = new ArrayList<>();
                 for (var d : dtos) { var i = new LinkedHashMap<String,Object>(); i.put("id",d.getId()); i.put("title",d.getTitle()); i.put("rating",d.getRating()); i.put("genre",d.getGenre()); i.put("poster_url",d.getPosterUrl()); r.add(i); }
                 return MAPPER.writeValueAsString(r); } catch (Exception e) { return "[{\"error\":\"推荐失败\"}]"; }
+        });
+    }
+
+    @Bean public ToolCallback getCinemaInfo(CinemaMapper cm, HallMapper hm) {
+        return cb("get_cinema_info", "查询影院详细信息，包括地址、电话、影厅类型(是否有IMAX/VIP厅)、影厅数量。用于回答用户关于影院设施的问题。",
+                "{\"type\":\"object\",\"properties\":{\"cinema_name\":{\"type\":\"string\",\"description\":\"影院名称关键词\"},\"city\":{\"type\":\"string\",\"description\":\"城市名称(可选，用于消歧)\"}},\"required\":[\"cinema_name\"]}",
+                input -> {
+            try {
+                Map<String, Object> a = MAPPER.readValue(input, Map.class);
+                String kw = (String) a.get("cinema_name");
+                String city = (String) a.get("city");
+
+                // 1. 查影院
+                List<Cinema> cinemas;
+                if (city != null && !city.isBlank()) {
+                    cinemas = cm.findByCity(city.replace("市", ""), 20);
+                    if (kw != null && !kw.isBlank()) {
+                        cinemas = cinemas.stream().filter(c -> c.getName().contains(kw)).collect(Collectors.toList());
+                    }
+                } else {
+                    cinemas = cm.searchByName(kw, 5);
+                }
+                if (cinemas.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error", "未找到影院: " + kw)));
+                if (cinemas.size() > 1) {
+                    List<String> names = cinemas.stream().map(Cinema::getName).collect(Collectors.toList());
+                    return MAPPER.writeValueAsString(List.of(Map.of("need_confirmation", true, "type", "cinema", "options", names, "message", "找到多家影院：" + String.join(" / ", names))));
+                }
+
+                Cinema cinema = cinemas.get(0);
+
+                // 2. 查影厅
+                List<Hall> halls = hm.findByCinemaId(cinema.getId());
+                boolean hasImax = halls.stream().anyMatch(h -> "imax".equalsIgnoreCase(h.getHallType()));
+                boolean hasVip = halls.stream().anyMatch(h -> "vip".equalsIgnoreCase(h.getHallType()));
+                boolean hasNormal = halls.stream().anyMatch(h -> "normal".equalsIgnoreCase(h.getHallType()) || h.getHallType() == null);
+
+                // 3. 统计影厅类型分布
+                Map<String, Long> typeCount = halls.stream()
+                        .collect(Collectors.groupingBy(
+                                h -> h.getHallType() != null ? h.getHallType() : "normal",
+                                Collectors.counting()));
+
+                // 4. 构建返回
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("name", cinema.getName());
+                info.put("address", cinema.getAddress());
+                info.put("phone", cinema.getPhone());
+                info.put("city", cinema.getCity());
+                info.put("hall_count", halls.size());
+                info.put("has_imax", hasImax);
+                info.put("has_vip", hasVip);
+                info.put("has_normal", hasNormal);
+                info.put("hall_types", typeCount);
+
+                // 影厅明细
+                List<Map<String, Object>> hallList = new ArrayList<>();
+                for (Hall h : halls) {
+                    Map<String, Object> hi = new LinkedHashMap<>();
+                    hi.put("name", h.getName());
+                    hi.put("type", h.getHallType() != null ? h.getHallType() : "normal");
+                    hi.put("rows", h.getTotalRows());
+                    hi.put("cols", h.getTotalCols());
+                    hallList.add(hi);
+                }
+                info.put("halls", hallList);
+
+                return MAPPER.writeValueAsString(info);
+            } catch (Exception e) {
+                return "{\"error\":\"查询影院信息失败\"}";
+            }
         });
     }
 

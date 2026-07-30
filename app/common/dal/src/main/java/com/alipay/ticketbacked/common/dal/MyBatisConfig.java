@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import javax.sql.DataSource;
+import java.time.LocalDateTime;
 
 /**
  * MyBatis 配置 — 显式创建 SqlSessionFactory
@@ -26,6 +27,8 @@ public class MyBatisConfig {
         factory.setTypeAliasesPackage("com.alipay.ticketbacked.core.model");
         org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration();
         configuration.setMapUnderscoreToCamelCase(true);
+        // 注册自定义 LocalDateTime TypeHandler，规避 MySQL JDBC 驱动对 NULL 值的空指针 Bug
+        configuration.getTypeHandlerRegistry().register(LocalDateTime.class, new SafeLocalDateTimeTypeHandler());
         factory.setConfiguration(configuration);
         return factory.getObject();
     }

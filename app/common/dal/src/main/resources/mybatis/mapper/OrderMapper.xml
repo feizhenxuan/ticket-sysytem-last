@@ -62,4 +62,55 @@
         LIMIT #{limit}
     </select>
 
+    <select id="findAllForAdminWithDetails" resultType="java.util.LinkedHashMap">
+        SELECT o.id, o.order_no, o.user_id, o.session_id, o.seat_ids, o.ticket_count,
+               o.total_amount, o.status, o.trade_no, o.pickup_code,
+               o.gmt_create, o.paid_at, o.cancelled_at, o.refunded_at,
+               u.username,
+               m.title as movie_title,
+               c.name as cinema_name,
+               h.name as hall_name,
+               s.start_time
+        FROM hx_orders o
+        LEFT JOIN hx_users u ON o.user_id = u.id
+        LEFT JOIN hx_sessions s ON o.session_id = s.id
+        LEFT JOIN hx_movies m ON s.movie_id = m.id
+        LEFT JOIN hx_cinemas c ON s.cinema_id = c.id
+        LEFT JOIN hx_halls h ON s.hall_id = h.id
+        <where>
+            <if test="status != null and status != ''">
+                o.status = #{status}
+            </if>
+        </where>
+        ORDER BY o.gmt_create DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAllForAdmin" resultType="int">
+        SELECT COUNT(*) FROM hx_orders
+        <where>
+            <if test="status != null and status != ''">
+                status = #{status}
+            </if>
+        </where>
+    </select>
+
+    <select id="findByIdWithDetails" resultType="java.util.LinkedHashMap">
+        SELECT o.id, o.order_no, o.user_id, o.session_id, o.seat_ids, o.ticket_count,
+               o.total_amount, o.status, o.trade_no, o.pickup_code,
+               o.gmt_create, o.paid_at, o.cancelled_at, o.refunded_at,
+               u.username,
+               m.title as movie_title,
+               c.name as cinema_name,
+               h.name as hall_name,
+               s.start_time
+        FROM hx_orders o
+        LEFT JOIN hx_users u ON o.user_id = u.id
+        LEFT JOIN hx_sessions s ON o.session_id = s.id
+        LEFT JOIN hx_movies m ON s.movie_id = m.id
+        LEFT JOIN hx_cinemas c ON s.cinema_id = c.id
+        LEFT JOIN hx_halls h ON s.hall_id = h.id
+        WHERE o.id = #{id}
+    </select>
+
 </mapper>

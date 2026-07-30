@@ -1,5 +1,7 @@
 package com.alipay.ticketbacked.core.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.time.LocalDateTime;
 
 /**
@@ -8,6 +10,7 @@ import java.time.LocalDateTime;
 public class User {
     private Long id;
     private String username;
+    @JsonIgnore
     private String passwordHash;
     private Boolean isActive;
     private LocalDateTime gmtCreate;

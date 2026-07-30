@@ -26,4 +26,16 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
+    <select id="countAllForAdmin" resultType="int">
+        SELECT COUNT(*) FROM hx_users
+        <where>
+            <if test="isActive != null">
+                is_active = #{isActive}
+            </if>
+            <if test="search != null and search != ''">
+                AND username LIKE CONCAT('%', #{search}, '%')
+            </if>
+        </where>
+    </select>
+
 </mapper>
