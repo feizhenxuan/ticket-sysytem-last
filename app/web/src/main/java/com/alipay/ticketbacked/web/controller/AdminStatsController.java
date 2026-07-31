@@ -32,50 +32,93 @@ public class AdminStatsController {
         this.hallMapper = hallMapper;
     }
 
-    /** 基础统计（原有） */
+    /** 基础统计（聚合 SQL 版，不再全表拉内存） */
     @GetMapping
     public Map<String, Object> stats() {
         Map<String, Object> stats = new LinkedHashMap<>();
-        stats.put("pending_orders", orderMapper.findAllForAdmin("pending", 9999, 0).size());
-        stats.put("paid_orders", orderMapper.findAllForAdmin("paid", 9999, 0).size());
-        stats.put("refunded_orders", orderMapper.findAllForAdmin("refunded", 9999, 0).size());
-        stats.put("movies_count", movieMapper.findByStatusOrderByRating("showing", 9999).size());
-        stats.put("cinemas_count", cinemaMapper.findAll(9999).size());
-        stats.put("sessions_count", sessionMapper.findAllAvailable().size());
+        // 订单各状态数量：一条 GROUP BY status（替代 3 次 findAllForAdmin(...).size() 全表拉行）
+        for (Map<String, Object> row : orderMapper.countByStatus()) {
+            String status = (String) row.get("status");
+            int cnt = toInt(row.get("cnt"));
+            switch (status) {
+                case "pending":  stats.put("pending_orders", cnt); break;
+                case "paid":     stats.put("paid_orders", cnt); break;
+                case "refunded": stats.put("refunded_orders", cnt); break;
+                default: break;
+            }
+        }
+        // 在映影片数：一条 GROUP BY（替代 findByStatusOrderByRating("showing",9999).size()）
+        int showing = 0;
+        for (Map<String, Object> row : movieMapper.countByStatus()) {
+            if ("showing".equals(row.get("status"))) {
+                showing = toInt(row.get("cnt"));
+            }
+        }
+        stats.put("movies_count", showing);
+        stats.put("cinemas_count", cinemaMapper.countAll());
+        Map<String, Object> sc = sessionMapper.countSummary();
+        stats.put("sessions_count", toInt(sc == null ? null : sc.get("total")));
         return stats;
     }
 
-    /** 前端期望: /api/admin/stats/overview */
+    /** 前端期望: /api/admin/stats/overview —— 全部改为 SQL 聚合，杜绝全表拉内存与 N+1 */
     @GetMapping("/overview")
     public Map<String, Object> overview() {
         Map<String, Object> overview = new LinkedHashMap<>();
 
-        int showingCount = movieMapper.findByStatusOrderByRating("showing", 9999).size();
-        int totalMovies = showingCount + movieMapper.findByStatusOrderByRating("coming", 9999).size();
-        overview.put("movies", Map.of("total", totalMovies, "showing", showingCount));
+        // ---- 电影：一条 GROUP BY status（替代 2 次 findByStatusOrderByRating(...).size()） ----
+        int showing = 0, coming = 0;
+        for (Map<String, Object> row : movieMapper.countByStatus()) {
+            String s = (String) row.get("status");
+            int cnt = toInt(row.get("cnt"));
+            if ("showing".equals(s)) {
+                showing = cnt;
+            } else if ("coming".equals(s)) {
+                coming = cnt;
+            }
+        }
+        overview.put("movies", Map.of("total", showing + coming, "showing", showing));
 
-        List<Cinema> cinemas = cinemaMapper.findAll(9999);
-        int hallsCount = 0;
-        for (Cinema c : cinemas) hallsCount += hallMapper.findByCinemaId(c.getId()).size();
-        overview.put("cinemas", Map.of("total", cinemas.size(), "halls", hallsCount));
+        // ---- 影院 / 影厅：两条独立 COUNT(*)（替代「遍历影院 + 每个影院查 halls」的 N+1） ----
+        overview.put("cinemas", Map.of("total", cinemaMapper.countAll(), "halls", hallMapper.countAll()));
 
-        List<Session> sessions = sessionMapper.findAllAvailable();
-        long available = sessions.stream().filter(s -> "available".equals(s.getStatus())).count();
-        overview.put("sessions", Map.of("total", sessions.size(), "available", (int) available));
+        // ---- 场次：一条 SQL 同时拿 total 与 available（替代 findAllAvailable() 全表拉行再内存 filter） ----
+        Map<String, Object> sc = sessionMapper.countSummary();
+        overview.put("sessions", Map.of(
+                "total", toInt(sc == null ? null : sc.get("total")),
+                "available", toInt(sc == null ? null : sc.get("available"))));
 
-        List<Order> allOrders = orderMapper.findAllForAdmin(null, 999999, 0);
-        long paid = allOrders.stream().filter(o -> "paid".equals(o.getStatus())).count();
-        long pending = allOrders.stream().filter(o -> "pending".equals(o.getStatus())).count();
-        long refunded = allOrders.stream().filter(o -> "refunded".equals(o.getStatus())).count();
-        double revenue = allOrders.stream()
-                .filter(o -> "paid".equals(o.getStatus()))
-                .mapToDouble(o -> o.getTotalAmount() != null ? o.getTotalAmount().doubleValue() : 0)
-                .sum();
-        overview.put("orders", Map.of("total", allOrders.size(), "paid", (int) paid, "pending", (int) pending, "refunded", (int) refunded));
+        // ---- 订单 + 收入：一条 GROUP BY status（替代 99 万行全表拉内存 + 4 次 stream 遍历） ----
+        int totalOrders = 0, paid = 0, pending = 0, refunded = 0;
+        double revenue = 0;
+        for (Map<String, Object> row : orderMapper.statsSummary()) {
+            String s = (String) row.get("status");
+            int cnt = toInt(row.get("cnt"));
+            totalOrders += cnt;
+            revenue += toDouble(row.get("revenue"));
+            switch (s) {
+                case "paid":     paid = cnt; break;
+                case "pending":  pending = cnt; break;
+                case "refunded": refunded = cnt; break;
+                default: break;
+            }
+        }
+        overview.put("orders", Map.of("total", totalOrders, "paid", paid, "pending", pending, "refunded", refunded));
         overview.put("revenue", Math.round(revenue * 100) / 100.0);
-        overview.put("users", userMapper.findAllForAdmin(null, null, 999999, 0).size());
+
+        // ---- 用户：一条 COUNT(*)（替代 findAllForAdmin(null,null,999999,0).size() 全表拉行） ----
+        overview.put("users", userMapper.countAll());
 
         return overview;
+    }
+
+    /** 安全数值转换：MyBatis 聚合返回的可能是 Long/Integer/BigDecimal/NULL */
+    private static int toInt(Object o) {
+        return o == null ? 0 : ((Number) o).intValue();
+    }
+
+    private static double toDouble(Object o) {
+        return o == null ? 0 : ((Number) o).doubleValue();
     }
 
     /** 前端期望: /api/admin/stats/revenue-trend */

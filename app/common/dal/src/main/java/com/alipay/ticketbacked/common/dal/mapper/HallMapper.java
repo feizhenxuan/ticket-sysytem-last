@@ -16,6 +16,12 @@ public interface HallMapper {
     @Select("SELECT * FROM hx_halls WHERE id = #{id}")
     Hall findById(@Param("id") Long id);
 
+    /**
+     * Admin: 影厅总数（替代「遍历每个影院再 findByCinemaId().size()」的 N+1 查询）
+     */
+    @Select("SELECT COUNT(*) FROM hx_halls")
+    int countAll();
+
     List<Hall> findByIds(@Param("ids") List<Long> ids);
 
     int insert(Hall hall);

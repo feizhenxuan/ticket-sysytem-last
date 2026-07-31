@@ -44,4 +44,13 @@ public interface SessionMapper {
     /** 批量删除指定日期之前的场次 */
     @Delete("DELETE FROM hx_sessions WHERE start_time < #{beforeDate}")
     int deleteBeforeDate(@Param("beforeDate") LocalDateTime beforeDate);
+
+    /**
+     * Admin: 场次总数与可售场次一条 SQL 搞定（替代 findAllAvailable() 拉全表再内存 filter）
+     * 返回: { total, available }（均已排除 status='closed'）
+     */
+    @Select("SELECT COUNT(*) as total, " +
+            "SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END) as available " +
+            "FROM hx_sessions WHERE status != 'closed'")
+    java.util.Map<String, Object> countSummary();
 }

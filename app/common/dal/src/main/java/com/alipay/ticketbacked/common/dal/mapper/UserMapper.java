@@ -24,4 +24,10 @@ public interface UserMapper {
 
     /** Admin: 用户总数（按条件过滤） */
     int countAllForAdmin(@Param("isActive") Boolean isActive, @Param("search") String search);
+
+    /**
+     * Admin: 用户总数（无过滤，替代 findAllForAdmin(null,null,999999,0).size() 全表拉内存再计数）
+     */
+    @Select("SELECT COUNT(*) FROM hx_users")
+    int countAll();
 }

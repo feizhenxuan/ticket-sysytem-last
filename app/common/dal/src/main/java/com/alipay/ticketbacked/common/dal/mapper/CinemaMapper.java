@@ -28,6 +28,12 @@ public interface CinemaMapper {
     @Select("SELECT * FROM hx_cinemas WHERE name LIKE CONCAT('%', #{name}, '%') LIMIT #{limit}")
     List<Cinema> searchByName(@Param("name") String name, @Param("limit") int limit);
 
+    /**
+     * Admin: 影院总数（替代 findAll(9999).size() 全表拉内存再计数）
+     */
+    @Select("SELECT COUNT(*) FROM hx_cinemas")
+    int countAll();
+
     int insert(Cinema cinema);
     int update(Cinema cinema);
     int deleteById(@Param("id") Long id);

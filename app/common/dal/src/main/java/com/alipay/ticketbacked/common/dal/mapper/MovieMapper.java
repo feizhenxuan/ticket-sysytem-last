@@ -41,4 +41,11 @@ public interface MovieMapper {
     /** 所有有场次的电影ID（用于过滤） */
     @Select("SELECT DISTINCT movie_id FROM hx_sessions")
     List<Long> findMovieIdsWithSessions();
+
+    /**
+     * Admin: 按状态聚合电影数（替代 findByStatusOrderByRating(...).size() 全表拉内存再计数）
+     * 返回每状态一行: { status, cnt }
+     */
+    @Select("SELECT status, COUNT(*) as cnt FROM hx_movies GROUP BY status")
+    List<java.util.Map<String, Object>> countByStatus();
 }

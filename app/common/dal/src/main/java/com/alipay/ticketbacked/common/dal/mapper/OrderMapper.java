@@ -45,6 +45,16 @@ public interface OrderMapper {
     @Select("SELECT status, COUNT(*) as cnt FROM hx_orders GROUP BY status")
     List<java.util.Map<String, Object>> countByStatus();
 
+    /**
+     * Admin: 按状态聚合订单数与已支付收入（替代全表拉内存再 count/sum）
+     * 返回每状态一行: { status, cnt, revenue }
+     * revenue 仅对 status='paid' 有意义，其他状态为 0
+     */
+    @Select("SELECT status, COUNT(*) as cnt, " +
+            "COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) as revenue " +
+            "FROM hx_orders GROUP BY status")
+    List<java.util.Map<String, Object>> statsSummary();
+
     /** Admin: 最近 N 天每日订单数和金额 */
     List<java.util.Map<String, Object>> dailyRevenueTrend(@Param("days") int days);
 
