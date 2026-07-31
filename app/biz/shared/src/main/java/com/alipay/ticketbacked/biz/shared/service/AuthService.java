@@ -36,7 +36,6 @@ public class AuthService {
     public TokenResponse register(AuthRequest req) {
         log.info("[register] 开始查询用户是否存在, username={}", req.getUsername());
         User existing = userMapper.findByUsername(req.getUsername());
-        log.info("[register] 查询结果 existing={}", existing == null ? "null" : "not null");
         if (existing != null) {
             throw BizException.badRequest("用户名已存在");
         }
@@ -44,39 +43,31 @@ public class AuthService {
         user.setUsername(req.getUsername());
         user.setPasswordHash(bcryptUtil.hashPassword(req.getPassword()));
         user.setIsActive(true);
-        log.info("[register] 准备插入用户, username={}", req.getUsername());
         userMapper.insert(user);
-        log.info("[register] 插入成功, userId={}", user.getId());
+        log.info("[register] 注册成功, userId={}", user.getId());
 
         Map<String, Object> claims = new HashMap<>();
         claims.put("user_id", user.getId());
         claims.put("username", user.getUsername());
-        log.info("[register] 准备生成JWT, userId={}", user.getId());
         String token = jwtUtil.createToken(claims);
-        log.info("[register] JWT生成成功");
         return new TokenResponse(token);
     }
 
     public TokenResponse login(AuthRequest req) {
         log.info("[login] 开始查询用户, username={}", req.getUsername());
         User user = userMapper.findByUsername(req.getUsername());
-        log.info("[login] 查询结果 user={}", user == null ? "null" : "id=" + user.getId() + ", username=" + user.getUsername());
         if (user == null) {
-            log.warn("[login] 用户不存在, username={}", req.getUsername());
             throw BizException.unauthorized("用户名或密码错误");
         }
-        log.info("[login] user.passwordHash={}", user.getPasswordHash() == null ? "null" : "非null(len=" + user.getPasswordHash().length() + ")");
         boolean verified = bcryptUtil.verifyPassword(req.getPassword(), user.getPasswordHash());
-        log.info("[login] 密码验证结果={}", verified);
         if (!verified) {
             throw BizException.unauthorized("用户名或密码错误");
         }
         Map<String, Object> claims = new HashMap<>();
         claims.put("user_id", user.getId());
         claims.put("username", user.getUsername());
-        log.info("[login] 准备生成JWT, userId={}", user.getId());
         String token = jwtUtil.createToken(claims);
-        log.info("[login] JWT生成成功");
+        log.info("[login] 登录成功, username={}", req.getUsername());
         return new TokenResponse(token);
     }
 

@@ -1,6 +1,7 @@
 package com.alipay.ticketbacked.common.dal.mapper;
 
 import com.alipay.ticketbacked.core.model.Session;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -39,4 +40,8 @@ public interface SessionMapper {
     /** 获取有场次的电影ID */
     @Select("SELECT DISTINCT movie_id FROM hx_sessions")
     List<Long> findMovieIdsWithSessions();
+
+    /** 批量删除指定日期之前的场次 */
+    @Delete("DELETE FROM hx_sessions WHERE start_time < #{beforeDate}")
+    int deleteBeforeDate(@Param("beforeDate") LocalDateTime beforeDate);
 }

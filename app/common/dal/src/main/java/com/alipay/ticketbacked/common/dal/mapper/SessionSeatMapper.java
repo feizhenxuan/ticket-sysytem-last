@@ -3,6 +3,7 @@ package com.alipay.ticketbacked.common.dal.mapper;
 import com.alipay.ticketbacked.core.model.SessionSeat;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -34,4 +35,12 @@ public interface SessionSeatMapper {
 
     @Select("SELECT COUNT(*) FROM hx_session_seats WHERE session_id = #{sessionId} AND status = #{status}")
     int countByStatus(@Param("sessionId") Long sessionId, @Param("status") String status);
+
+    /** 删除孤儿座位状态 — 直接删除不在场次表中的记录 */
+    @org.apache.ibatis.annotations.Delete("DELETE FROM hx_session_seats WHERE session_id NOT IN (SELECT id FROM hx_sessions)")
+    int deleteAllOrphanSeatStatuses();
+
+    /** 查最大的 session_id */
+    @Select("SELECT MAX(session_id) FROM hx_session_seats")
+    Long findMaxSessionId();
 }

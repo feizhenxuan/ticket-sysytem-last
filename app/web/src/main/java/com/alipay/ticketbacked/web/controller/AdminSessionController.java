@@ -12,7 +12,6 @@ import com.alipay.ticketbacked.core.model.Hall;
 import com.alipay.ticketbacked.core.model.Seat;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -116,5 +115,19 @@ public class AdminSessionController {
         }
 
         return Map.of("city", city, "sessions", sessionCount, "seat_statuses", seatStatusCount);
+    }
+
+    /**
+     * 清理过期场次 — 删除指定日期之前的所有场次及其座位状态
+     * DELETE /api/admin/sessions/cleanup?before_date=2026-07-30
+     */
+    @PostMapping("/cleanup")
+    public Object cleanupExpired(@RequestParam String before_date) {
+        java.time.LocalDateTime before = java.time.LocalDate.parse(before_date).atStartOfDay();
+        // 1. 删除过期场次
+        int deletedSessions = sessionMapper.deleteBeforeDate(before);
+        // 2. 删除孤儿座位状态（场次已被删除，座位状态引用的session_id不存在了）
+        int deletedSeatStatuses = sessionSeatMapper.deleteAllOrphanSeatStatuses();
+        return Map.of("before_date", before_date, "deleted_sessions", deletedSessions, "deleted_seat_statuses", deletedSeatStatuses);
     }
 }

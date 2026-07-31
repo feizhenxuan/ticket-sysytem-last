@@ -239,8 +239,9 @@ public class ChatAgentService {
 
                         ToolCallback callback = findCallback(toolName);
                         if (callback != null) {
-                            // 为 search_sessions 注入用户定位，确保按5km范围过滤
-                            if ("search_sessions".equals(toolName) && lat != null && lng != null) {
+                            // 为 search_sessions 和 search_cinemas 注入用户定位，确保按距离过滤
+                            if (("search_sessions".equals(toolName) || "search_cinemas".equals(toolName))
+                                    && lat != null && lng != null) {
                                 toolArgs = injectLocationIntoArgs(toolArgs, lat, lng);
                             }
                             String result;

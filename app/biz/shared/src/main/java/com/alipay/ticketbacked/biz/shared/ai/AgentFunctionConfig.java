@@ -63,15 +63,72 @@ public class AgentFunctionConfig {
     }
 
     @Bean public ToolCallback searchCinemas(CinemaMapper cm) {
-        return cb("search_cinemas", "搜索影院列表，支持按名称模糊匹配和城市过滤。",
-                "{\"type\":\"object\",\"properties\":{\"keyword\":{\"type\":\"string\",\"description\":\"影院名称关键词\"},\"city\":{\"type\":\"string\",\"description\":\"城市名称\"},\"limit\":{\"type\":\"integer\",\"description\":\"返回数量(1-20)\",\"default\":10}},\"required\":[]}",
+        return cb("search_cinemas", "搜索影院列表，支持按名称模糊匹配、城市过滤和附近定位搜索。当用户问'附近影院'时会自动注入经纬度，按距离排序返回。",
+                "{\"type\":\"object\",\"properties\":{\"keyword\":{\"type\":\"string\",\"description\":\"影院名称关键词\"},\"city\":{\"type\":\"string\",\"description\":\"城市名称\"},\"lat\":{\"type\":\"number\",\"description\":\"用户纬度（系统自动注入）\"},\"lng\":{\"type\":\"number\",\"description\":\"用户经度（系统自动注入）\"},\"limit\":{\"type\":\"integer\",\"description\":\"返回数量(1-20)\",\"default\":10}},\"required\":[]}",
                 input -> {
             try {
                 Map<String,Object> a = MAPPER.readValue(input, Map.class);
                 String kw = (String) a.get("keyword"), city = (String) a.get("city");
                 int limit = Math.min(Math.max(a.containsKey("limit") ? ((Number)a.get("limit")).intValue() : 10, 1), 20);
-                List<Cinema> cinemas = (city != null && !city.isBlank()) ? cm.findByCity(city.replace("市",""), limit) : cm.findAll(limit);
+                double userLat = a.containsKey("lat") ? ((Number)a.get("lat")).doubleValue() : 0;
+                double userLng = a.containsKey("lng") ? ((Number)a.get("lng")).doubleValue() : 0;
+                boolean hasLocation = userLat > 0 && userLng > 0;
+
+                // 有定位时取全部影院做距离过滤；无定位时按城市或取全部
+                List<Cinema> cinemas;
+                if (hasLocation) {
+                    cinemas = cm.findAllNoLimit();
+                } else if (city != null && !city.isBlank()) {
+                    cinemas = cm.findByCityKeyword(city.replace("市", ""), 200);
+                } else {
+                    cinemas = cm.findAll(limit);
+                }
+
                 if (kw != null && !kw.isBlank()) cinemas = cinemas.stream().filter(c -> c.getName().contains(kw)).collect(Collectors.toList());
+
+                // 有定位时按距离过滤和排序
+                if (hasLocation) {
+                    final double fLat = userLat, fLng = userLng;
+                    // 先计算距离、过滤10km以内、按距离排序
+                    List<Map<String,Object>> r = cinemas.stream()
+                        .filter(c -> c.getLatitude() != null && c.getLongitude() != null)
+                        .map(c -> {
+                            double dist = haversineKm(fLng, fLat, c.getLongitude().doubleValue(), c.getLatitude().doubleValue());
+                            var i = new LinkedHashMap<String,Object>();
+                            i.put("id", c.getId()); i.put("name", c.getName());
+                            i.put("address", c.getAddress()); i.put("city", c.getCity());
+                            i.put("phone", c.getPhone());
+                            i.put("distance_km", Math.round(dist * 10) / 10.0);
+                            return Map.entry(dist, i);
+                        })
+                        .filter(e -> e.getKey() <= 10.0)  // 10km范围内的影院
+                        .sorted(Comparator.comparingDouble(Map.Entry::getKey))
+                        .limit(limit)
+                        .map(Map.Entry::getValue)
+                        .collect(Collectors.toList());
+
+                    if (r.isEmpty()) {
+                        // 10km内没有影院，返回最近的5个
+                        r = cinemas.stream()
+                            .filter(c -> c.getLatitude() != null && c.getLongitude() != null)
+                            .map(c -> {
+                                double dist = haversineKm(fLng, fLat, c.getLongitude().doubleValue(), c.getLatitude().doubleValue());
+                                var i = new LinkedHashMap<String,Object>();
+                                i.put("id", c.getId()); i.put("name", c.getName());
+                                i.put("address", c.getAddress()); i.put("city", c.getCity());
+                                i.put("phone", c.getPhone());
+                                i.put("distance_km", Math.round(dist * 10) / 10.0);
+                                return Map.entry(dist, i);
+                            })
+                            .sorted(Comparator.comparingDouble(Map.Entry::getKey))
+                            .limit(5)
+                            .map(Map.Entry::getValue)
+                            .collect(Collectors.toList());
+                    }
+                    return MAPPER.writeValueAsString(r);
+                }
+
+                // 无定位：保持原逻辑
                 List<Map<String,Object>> r = new ArrayList<>();
                 for (Cinema c : cinemas) { var i = new LinkedHashMap<String,Object>(); i.put("id",c.getId()); i.put("name",c.getName()); i.put("address",c.getAddress()); i.put("city",c.getCity()); i.put("phone",c.getPhone()); r.add(i); }
                 return MAPPER.writeValueAsString(r);
