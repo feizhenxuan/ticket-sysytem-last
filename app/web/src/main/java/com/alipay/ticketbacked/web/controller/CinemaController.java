@@ -42,7 +42,9 @@ public class CinemaController {
                 if (regeo != null && regeo.get("city") != null) {
                     resolvedCity = (String) regeo.get("city");
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // This catch statement is intentionally empty
+            }
 
             // 去掉"市"后缀，用关键词模糊匹配（北京 vs 北京市）
             String keyword = resolvedCity != null ? resolvedCity.replace("市", "").replace("省", "") : null;
