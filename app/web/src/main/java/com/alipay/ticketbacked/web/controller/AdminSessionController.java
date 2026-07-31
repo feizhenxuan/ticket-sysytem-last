@@ -12,6 +12,7 @@ import com.alipay.ticketbacked.core.model.Hall;
 import com.alipay.ticketbacked.core.model.Seat;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
