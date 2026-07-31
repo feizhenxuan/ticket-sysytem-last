@@ -31,7 +31,6 @@ public class CinemaController {
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
             @RequestParam(required = false) String sort,
-            @RequestParam(required = false) Integer radius,
             @RequestParam(defaultValue = "50") int limit) {
         limit = Math.max(1, Math.min(limit, 100));
 
@@ -43,13 +42,11 @@ public class CinemaController {
                 if (regeo != null && regeo.get("city") != null) {
                     resolvedCity = (String) regeo.get("city");
                 }
-            } catch (Exception e) {
-                // 逆地理失败时降级使用传入的 city 参数
-            }
+            } catch (Exception ignored) {}
 
             // 去掉"市"后缀，用关键词模糊匹配（北京 vs 北京市）
             String keyword = resolvedCity != null ? resolvedCity.replace("市", "").replace("省", "") : null;
-            List<CinemaDTO> items = cinemaService.listCinemasNearby(keyword, lat, lng, radius, limit);
+            List<CinemaDTO> items = cinemaService.listCinemasNearby(keyword, lat, lng, limit);
             Map<String, Object> result = new HashMap<>();
             result.put("items", items);
             result.put("total", items.size());
@@ -59,7 +56,7 @@ public class CinemaController {
         }
 
         // 无坐标时按城市过滤
-        List<CinemaDTO> items = cinemaService.listCinemasNearby(city, null, null, null, limit);
+        List<CinemaDTO> items = cinemaService.listCinemasNearby(city, null, null, limit);
         Map<String, Object> result = new HashMap<>();
         result.put("items", items);
         result.put("total", items.size());

@@ -308,15 +308,19 @@ public class ChatAgentService {
                 log.warn("[Agent] 超过最大迭代次数 {}", MAX_ITERATIONS);
             }
 
-            // 7. 保存 AI 回复（连同卡片数据一起存储，供历史记录回显）
-            saveMessage(sessionId, "assistant", fullReply, pendingCards);
+            // 7. 推送积攒的卡片（文字回复完后再推卡片，视觉顺序更好）
+            //    对相同 card_type 的卡片做合并去重，避免 LLM 同时调用功能重叠的工具导致重复卡片
+            List<Map<String, Object>> dedupedCards = deduplicateCards(pendingCards);
 
-            // 8. 推送积攒的卡片（文字回复完后再推卡片，视觉顺序更好）
-            for (Map<String, Object> cardEvent : pendingCards) {
+            // 8. 保存 AI 回复（连同去重后的卡片数据一起存储，供历史记录回显）
+            saveMessage(sessionId, "assistant", fullReply, dedupedCards);
+
+            // 9. 推送卡片给前端
+            for (Map<String, Object> cardEvent : dedupedCards) {
                 eventCallback.accept(cardEvent);
             }
 
-            // 9. 发送 done 事件
+            // 10. 发送 done 事件
             eventCallback.accept(Map.of("type", "done", "session_id", sessionId));
 
         } catch (Exception e) {
@@ -368,6 +372,45 @@ public class ChatAgentService {
         } catch (Exception e) {
             log.warn("[Agent] 解析工具结果收集卡片失败: {}", toolName, e);
         }
+    }
+
+    /**
+     * 对相同 card_type 的卡片做合并去重。
+     * 当 LLM 在同一轮调用了 search_movies + recommend_movies 等功能重叠的工具时，
+     * 会产生多张 movie_list 卡片，这里合并为一张，按 item 的 id 字段去重。
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> deduplicateCards(List<Map<String, Object>> cards) {
+        if (cards == null || cards.size() <= 1) return cards;
+
+        Map<String, Map<String, Object>> cardByType = new LinkedHashMap<>();
+        for (Map<String, Object> card : cards) {
+            String ct = (String) card.get("card_type");
+            Map<String, Object> existing = cardByType.get(ct);
+            if (existing == null) {
+                cardByType.put(ct, new LinkedHashMap<>(card));
+            } else {
+                // 合并 items，按 id 去重，保留先出现的条目（字段更完整）
+                List<Map<String, Object>> merged = new ArrayList<>(
+                        (List<Map<String, Object>>) existing.get("items"));
+                Set<Object> seenIds = new HashSet<>();
+                for (Map<String, Object> item : merged) {
+                    seenIds.add(item.get("id"));
+                }
+                for (Map<String, Object> item : (List<Map<String, Object>>) card.get("items")) {
+                    if (!seenIds.contains(item.get("id"))) {
+                        merged.add(item);
+                        seenIds.add(item.get("id"));
+                    }
+                }
+                existing.put("items", merged);
+            }
+        }
+        List<Map<String, Object>> result = new ArrayList<>(cardByType.values());
+        if (result.size() < cards.size()) {
+            log.info("[Agent] 卡片去重: {} -> {}", cards.size(), result.size());
+        }
+        return result;
     }
 
     /** 获取对话历史列表 */

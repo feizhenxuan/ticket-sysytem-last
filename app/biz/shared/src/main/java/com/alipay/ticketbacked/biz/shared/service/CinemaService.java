@@ -22,10 +22,9 @@ public class CinemaService {
     }
 
     /**
-     * 查询附近影院：有城市关键词时按城市过滤，有坐标时计算距离排序；
-     * radius（米）非空时仅返回距离 ≤ radius 的影院
+     * 查询附近影院：有城市关键词时按城市过滤，有坐标时计算距离排序
      */
-    public List<CinemaDTO> listCinemasNearby(String city, Double lat, Double lng, Integer radius, int limit) {
+    public List<CinemaDTO> listCinemasNearby(String city, Double lat, Double lng, int limit) {
         List<Cinema> cinemas;
         if (city != null && !city.isBlank()) {
             // 有城市关键词：模糊匹配城市，再按距离排序
@@ -52,12 +51,6 @@ public class CinemaService {
                     dto.setDistance(dist);
                 }
             });
-            // radius（米）非空时，先剔除超出半径的影院
-            if (radius != null && radius > 0) {
-                dtos = dtos.stream()
-                        .filter(dto -> dto.getDistance() != null && dto.getDistance() <= radius)
-                        .collect(Collectors.toList());
-            }
             dtos = dtos.stream()
                     .sorted(Comparator.comparing(CinemaDTO::getDistance, Comparator.nullsLast(Comparator.naturalOrder())))
                     .limit(limit)
