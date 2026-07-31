@@ -19,4 +19,26 @@
         ORDER BY s.row_num, s.col_num
     </select>
 
+    <!-- 按 session_id + seat_ids 精确释放座位，不依赖 locked_by_order_id -->
+    <update id="releaseSeatsBySessionAndSeatIds">
+        UPDATE hx_session_seats
+        SET status = 'available', locked_by_order_id = NULL, locked_at = NULL
+        WHERE session_id = #{sessionId}
+          AND seat_id IN
+        <foreach collection="seatIds" item="seatId" open="(" separator="," close=")">
+            #{seatId}
+        </foreach>
+    </update>
+
+    <!-- 按 session_id + seat_ids 精确更新座位状态（用于支付成功标记 sold） -->
+    <update id="markSeatsStatusBySessionAndSeatIds">
+        UPDATE hx_session_seats
+        SET status = #{status}
+        WHERE session_id = #{sessionId}
+          AND seat_id IN
+        <foreach collection="seatIds" item="seatId" open="(" separator="," close=")">
+            #{seatId}
+        </foreach>
+    </update>
+
 </mapper>

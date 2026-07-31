@@ -55,7 +55,24 @@ public class PaymentController {
             @RequestParam String out_trade_no,
             @RequestParam String trade_no,
             @RequestParam String total_amount) {
-        return orderService.confirmPayment(out_trade_no, trade_no);
+        try {
+            return orderService.confirmPayment(out_trade_no, trade_no);
+        } catch (Exception e) {
+            // confirmPayment 可能因 DB 连接超时等抛异常，但订单可能已更新为 paid
+            // 重新查一次订单状态，如果确实已支付，返回成功
+            log.warn("[payVerify] confirmPayment 异常，回查订单状态: out_trade_no={}", out_trade_no, e);
+            Order order = orderService.findByOrderNo(out_trade_no);
+            if (order != null && "paid".equals(order.getStatus())) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", true);
+                result.put("message", "支付成功");
+                result.put("order_no", out_trade_no);
+                result.put("pickup_code", order.getPickupCode() != null ? order.getPickupCode() : "");
+                result.put("status", "paid");
+                return result;
+            }
+            throw e;
+        }
     }
 
     @PostMapping("/notify")
@@ -98,12 +115,15 @@ public class PaymentController {
         if (order == null) throw BizException.notFound("订单不存在");
         if (!"paid".equals(order.getStatus())) throw BizException.badRequest("只能退已支付订单");
 
+        log.info("[refund] 开始退款: orderId={}, orderNo={}, amount={}", order_id, order.getOrderNo(), order.getTotalAmount());
         Map<String, Object> result = alipayClient.refund(order.getOrderNo(), order.getTotalAmount().toPlainString());
         String code = (String) result.get("code");
         if ("10000".equals(code)) {
             orderService.refundOrder(order_id, user.getId());
+            log.info("[refund] 退款成功: orderId={}", order_id);
             return Map.of("success", true, "message", "退款成功");
         }
+        log.warn("[refund] 支付宝退款失败: orderId={}, code={}, sub_msg={}", order_id, code, result.get("sub_msg"));
         Map<String, Object> fail = new HashMap<>();
         fail.put("success", false);
         fail.put("message", result.getOrDefault("sub_msg", "退款失败"));

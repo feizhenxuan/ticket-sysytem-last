@@ -3,6 +3,7 @@ package com.alipay.ticketbacked.biz.shared.ai;
 import com.alipay.ticketbacked.common.dal.mapper.ChatSessionMapper;
 import com.alipay.ticketbacked.core.model.ChatSession;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -29,7 +30,7 @@ import java.util.function.Consumer;
 public class ChatAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatAgentService.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
     private static final int MAX_ITERATIONS = 5;
 
     private final ChatModel chatModel;
@@ -105,10 +106,63 @@ public class ChatAgentService {
                 }
             }
 
-            // reject 意图直接返回固定话术
+            // reject 意图走 LLM 生成有人情味的回复（流式输出）
             if (intent == IntentDetector.Intent.REJECT) {
-                String reply = AgentPrompts.REJECT_REPLY;
-                eventCallback.accept(Map.of("type", "text", "content", reply));
+                String rejectSystemContent = AgentPrompts.REJECT_SYSTEM_PROMPT;
+
+                List<org.springframework.ai.chat.messages.Message> rejectMessages = new ArrayList<>();
+                rejectMessages.add(new SystemMessage(rejectSystemContent));
+                // 注入对话历史，让回复有上下文连续性
+                List<Map<String, Object>> rejectHistory = parseJson(session.getMessages(), List.class);
+                if (rejectHistory != null) {
+                    for (Map<String, Object> msg : rejectHistory) {
+                        String role = (String) msg.get("role");
+                        String msgContent = (String) msg.get("content");
+                        if ("user".equals(role) && msgContent != null) {
+                            rejectMessages.add(new UserMessage(msgContent));
+                        } else if ("assistant".equals(role) && msgContent != null) {
+                            rejectMessages.add(new AssistantMessage(msgContent));
+                        }
+                    }
+                }
+                rejectMessages.add(new UserMessage(content));
+
+                Prompt rejectPrompt = new Prompt(rejectMessages);
+                StringBuilder rejectBuilder = new StringBuilder();
+                try {
+                    chatModel.stream(rejectPrompt)
+                        .doOnNext(chunk -> {
+                            if (chunk == null || chunk.getResult() == null
+                                    || chunk.getResult().getOutput() == null) {
+                                return;
+                            }
+                            String delta = chunk.getResult().getOutput().getText();
+                            if (delta != null && !delta.isEmpty()) {
+                                rejectBuilder.append(delta);
+                                eventCallback.accept(Map.of("type", "text_delta", "content", delta));
+                            }
+                        })
+                        .blockLast();
+                } catch (Exception e) {
+                    log.warn("[Agent] REJECT stream 异常, fallback to call: {}", e.getMessage());
+                    try {
+                        ChatResponse resp = chatModel.call(rejectPrompt);
+                        String text = resp.getResult().getOutput().getText();
+                        if (text != null && !text.isEmpty()) {
+                            rejectBuilder.append(text);
+                            eventCallback.accept(Map.of("type", "text_delta", "content", text));
+                        }
+                    } catch (Exception e2) {
+                        log.error("[Agent] REJECT fallback call 也失败", e2);
+                    }
+                }
+
+                String reply = rejectBuilder.toString();
+                if (reply.isEmpty()) {
+                    // stream 和 call 都失败时，通过 text_delta 推送兜底回复（保持打字机效果）
+                    reply = "这个我帮不了你啦，我是个电影助手嘛。不过你要是想看场电影，随时来找我呀～";
+                    eventCallback.accept(Map.of("type", "text_delta", "content", reply));
+                }
                 saveMessage(sessionId, "assistant", reply);
                 eventCallback.accept(Map.of("type", "done", "session_id", sessionId));
                 return;
@@ -133,6 +187,10 @@ public class ChatAgentService {
             }
             if (lat != null && lng != null) {
                 systemContent += "\n用户当前定位经纬度: lng=" + lng + ", lat=" + lat;
+            }
+            // 注入当前用户ID，让 LLM 调用 get_user_orders 时直接使用，无需向用户询问
+            if (userId != null) {
+                systemContent += "\n当前用户ID: " + userId;
             }
 
             // 5. 构建消息列表（含完整历史 — user + assistant）
@@ -243,6 +301,11 @@ public class ChatAgentService {
                             if (("search_sessions".equals(toolName) || "search_cinemas".equals(toolName))
                                     && lat != null && lng != null) {
                                 toolArgs = injectLocationIntoArgs(toolArgs, lat, lng);
+                            }
+                            // 为 get_user_orders 强制注入当前登录用户ID，
+                            // LLM 不需要也不应该自己提供 user_id（安全 + 防遗漏）
+                            if ("get_user_orders".equals(toolName) && userId != null) {
+                                toolArgs = injectUserIdIntoArgs(toolArgs, userId);
                             }
                             String result;
                             try {
@@ -672,6 +735,20 @@ public class ChatAgentService {
             return MAPPER.writeValueAsString(args);
         } catch (Exception e) {
             log.warn("[Agent] 注入定位失败, 原始参数: {}", toolArgs);
+            return toolArgs;
+        }
+    }
+
+    /** 向 get_user_orders 的工具参数 JSON 中强制注入当前登录用户ID */
+    @SuppressWarnings("unchecked")
+    private String injectUserIdIntoArgs(String toolArgs, Long userId) {
+        try {
+            Map<String, Object> args = MAPPER.readValue(toolArgs, Map.class);
+            // 无条件覆盖 LLM 可能提供（或缺失）的 user_id，确保只能查当前登录用户的订单
+            args.put("user_id", userId);
+            return MAPPER.writeValueAsString(args);
+        } catch (Exception e) {
+            log.warn("[Agent] 注入用户ID失败, 原始参数: {}", toolArgs);
             return toolArgs;
         }
     }

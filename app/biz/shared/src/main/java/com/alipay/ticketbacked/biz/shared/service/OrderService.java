@@ -143,6 +143,11 @@ public class OrderService {
         return orderMapper.findByIdAndUser(orderId, userId);
     }
 
+    /** 按订单号查订单（供 PaymentController 回查使用） */
+    public Order findByOrderNo(String orderNo) {
+        return orderMapper.findByOrderNo(orderNo);
+    }
+
     /** 获取订单完整详情（含电影/影院/影厅/场次/座位信息） */
     public Map<String, Object> getOrderDetail(Long orderId, Long userId) {
         Order order = orderMapper.findByIdAndUser(orderId, userId);
@@ -220,8 +225,9 @@ public class OrderService {
         if (order == null) throw BizException.notFound("订单不存在");
         if (!"pending".equals(order.getStatus())) throw BizException.badRequest("只能取消待支付订单");
 
+        log.info("[cancelOrder] orderId={}, sessionId={}, seatIds={}", orderId, order.getSessionId(), order.getSeatIds());
         orderMapper.updateCancelStatus(orderId, "cancelled", LocalDateTime.now());
-        sessionSeatMapper.releaseSeatsByOrderId(orderId);
+        releaseSeatsForOrder(order);
     }
 
     /** 确认支付 */
@@ -233,9 +239,26 @@ public class OrderService {
             return Map.of("success", true, "message", "订单已处理", "status", order.getStatus());
         }
 
+        log.info("[confirmPayment] orderNo={}, orderId={}, sessionId={}, seatIds={}", orderNo, order.getId(), order.getSessionId(), order.getSeatIds());
         String pickupCode = String.valueOf((int)(Math.random() * 900000 + 100000));
         orderMapper.updateStatus(order.getId(), "paid", tradeNo, pickupCode, LocalDateTime.now());
-        sessionSeatMapper.updateStatusByOrderId(order.getId(), "sold");
+
+        // 标记座位为已售 — 双重保险，且座位更新失败不影响支付结果
+        try {
+            List<Long> seatIds = parseSeatIds(order.getSeatIds());
+            if (order.getSessionId() != null && !seatIds.isEmpty()) {
+                int rows = sessionSeatMapper.markSeatsStatusBySessionAndSeatIds(order.getSessionId(), seatIds, "sold");
+                log.info("[confirmPayment] 精确标记 {} 个座位为 sold, affected={}, orderId={}", seatIds.size(), rows, order.getId());
+            }
+        } catch (Exception e) {
+            log.warn("[confirmPayment] 精确标记座位失败，尝试兜底: orderId={}", order.getId(), e);
+        }
+        // 兜底
+        try {
+            sessionSeatMapper.updateStatusByOrderId(order.getId(), "sold");
+        } catch (Exception e) {
+            log.warn("[confirmPayment] 兜底标记座位失败，但不影响支付结果: orderId={}", order.getId(), e);
+        }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", true);
@@ -253,8 +276,39 @@ public class OrderService {
         if (order == null) throw BizException.notFound("订单不存在");
         if (!"paid".equals(order.getStatus())) throw BizException.badRequest("只能退已支付订单");
 
+        log.info("[refundOrder] orderId={}, sessionId={}, seatIds={}", orderId, order.getSessionId(), order.getSeatIds());
         orderMapper.updateRefundStatus(orderId, "refunded", LocalDateTime.now());
-        sessionSeatMapper.releaseSeatsByOrderId(orderId);
+        releaseSeatsForOrder(order);
+    }
+
+    /**
+     * 释放订单关联的座位 — 双重保险：
+     * 1. 按 session_id + seat_ids 精确释放（不依赖 locked_by_order_id，解决主键回填失败的问题）
+     * 2. 按 locked_by_order_id 兜底释放（清理可能遗漏的锁定记录）
+     */
+    private void releaseSeatsForOrder(Order order) {
+        List<Long> seatIds = parseSeatIds(order.getSeatIds());
+        if (order.getSessionId() != null && !seatIds.isEmpty()) {
+            int rows = sessionSeatMapper.releaseSeatsBySessionAndSeatIds(order.getSessionId(), seatIds);
+            log.info("[releaseSeatsForOrder] 精确释放 {} 个座位, affected rows={}, orderId={}", seatIds.size(), rows, order.getId());
+        }
+        // 兜底：按 locked_by_order_id 释放（如果主键回填成功，这里会清理到；如果回填失败，上面已处理）
+        if (order.getId() != null) {
+            int fallbackRows = sessionSeatMapper.releaseSeatsByOrderId(order.getId());
+            log.info("[releaseSeatsForOrder] 兜底释放 by orderId={}, affected rows={}", order.getId(), fallbackRows);
+        }
+    }
+
+    /** 解析订单的 seat_ids JSON 字符串 "[1,2,3]" 为 List<Long> */
+    @SuppressWarnings("unchecked")
+    private List<Long> parseSeatIds(String seatIdsStr) {
+        if (seatIdsStr == null || seatIdsStr.isBlank()) return Collections.emptyList();
+        try {
+            return objectMapper.readValue(seatIdsStr, List.class);
+        } catch (Exception e) {
+            log.warn("[parseSeatIds] 解析 seatIds 失败: {}", seatIdsStr, e);
+            return Collections.emptyList();
+        }
     }
 
     /** 获取用户已支付订单（供 Agent Function Calling 使用） */

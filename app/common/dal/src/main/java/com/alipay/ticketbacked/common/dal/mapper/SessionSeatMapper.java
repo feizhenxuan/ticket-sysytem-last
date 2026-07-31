@@ -33,6 +33,18 @@ public interface SessionSeatMapper {
     @Update("UPDATE hx_session_seats SET status = 'available', locked_by_order_id = NULL, locked_at = NULL WHERE locked_by_order_id = #{orderId}")
     int releaseSeatsByOrderId(@Param("orderId") Long orderId);
 
+    /**
+     * 按 session_id + seat_ids 精确释放座位（不依赖 locked_by_order_id，避免主键回填失败导致座位无法释放）
+     * 动态 SQL 在 SessionSeatMapper.xml 中定义
+     */
+    int releaseSeatsBySessionAndSeatIds(@Param("sessionId") Long sessionId, @Param("seatIds") List<Long> seatIds);
+
+    /**
+     * 按 session_id + seat_ids 精确更新座位状态（用于支付成功标记 sold）
+     * 动态 SQL 在 SessionSeatMapper.xml 中定义
+     */
+    int markSeatsStatusBySessionAndSeatIds(@Param("sessionId") Long sessionId, @Param("seatIds") List<Long> seatIds, @Param("status") String status);
+
     @Select("SELECT COUNT(*) FROM hx_session_seats WHERE session_id = #{sessionId} AND status = #{status}")
     int countByStatus(@Param("sessionId") Long sessionId, @Param("status") String status);
 

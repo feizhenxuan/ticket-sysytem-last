@@ -6,10 +6,13 @@ import com.alipay.ticketbacked.common.dal.mapper.*;
 import com.alipay.ticketbacked.core.model.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -22,7 +25,8 @@ import java.util.stream.Collectors;
 @Configuration
 public class AgentFunctionConfig {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
+    private static final Logger log = LoggerFactory.getLogger(AgentFunctionConfig.class);
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static ToolCallback cb(String name, String desc, String schema, Function<String, String> fn) {
@@ -250,11 +254,15 @@ public class AgentFunctionConfig {
     }
 
     @Bean public ToolCallback getUserOrders(OrderService os) {
-        return cb("get_user_orders", "查询用户订单列表，可按状态筛选。",
-                "{\"type\":\"object\",\"properties\":{\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID\"},\"status_filter\":{\"type\":\"string\",\"description\":\"状态筛选: paid/unpaid/refunded\"}},\"required\":[\"user_id\"]}",
+        return cb("get_user_orders", "查询当前登录用户的订单列表，可按状态筛选。user_id 会被系统自动注入，不需要提供。",
+                "{\"type\":\"object\",\"properties\":{\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID（系统自动注入，无需关心）\"},\"status_filter\":{\"type\":\"string\",\"description\":\"状态筛选: paid/unpaid/refunded\"}},\"required\":[]}",
                 input -> {
-            try { Map<String,Object> a = MAPPER.readValue(input, Map.class); Long uid = ((Number)a.get("user_id")).longValue(); String sf = (String)a.get("status_filter");
-                return MAPPER.writeValueAsString(os.listOrders(uid, sf)); } catch (Exception e) { return "[{\"error\":\"查询订单失败\"}]"; }
+            try { Map<String,Object> a = MAPPER.readValue(input, Map.class); Object uidObj = a.get("user_id");
+                if (uidObj == null) { log.warn("[get_user_orders] user_id 缺失, input={}", input); return "[{\"error\":\"用户ID缺失，无法查询订单\"}]"; }
+                Long uid = ((Number) uidObj).longValue(); String sf = (String)a.get("status_filter");
+                log.info("[get_user_orders] 调用 listOrders, uid={}, statusFilter={}", uid, sf);
+                return MAPPER.writeValueAsString(os.listOrders(uid, sf)); }
+            catch (Exception e) { log.error("[get_user_orders] 查询订单异常", e); return "[{\"error\":\"查询订单失败\"}]"; }
         });
     }
 
