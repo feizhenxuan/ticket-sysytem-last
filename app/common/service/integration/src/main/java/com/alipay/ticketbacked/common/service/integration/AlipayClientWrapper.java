@@ -5,8 +5,10 @@ import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
 import com.alipay.api.internal.util.AlipaySignature;
 import com.alipay.api.request.AlipayTradePagePayRequest;
+import com.alipay.api.request.AlipayTradePrecreateRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
 import com.alipay.api.request.AlipayTradeRefundRequest;
+import com.alipay.api.response.AlipayTradePrecreateResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
 import com.alipay.api.response.AlipayTradeRefundResponse;
 import org.slf4j.Logger;
@@ -81,6 +83,35 @@ public class AlipayClientWrapper {
     /** 兼容旧调用（使用配置文件中的 return_url） */
     public String createPaymentForm(String orderNo, String amount, String subject) {
         return createPaymentForm(orderNo, amount, subject, null);
+    }
+
+    /** 当面付预下单 — 返回二维码链接（沙箱支持）
+     *  前端拿到 qr_code 后生成二维码图片，用户用支付宝扫码支付 */
+    public Map<String, Object> createPrecreateQRCode(String orderNo, String amount, String subject) {
+        AlipayTradePrecreateRequest request = new AlipayTradePrecreateRequest();
+        if (notifyUrl != null && !notifyUrl.isBlank()) {
+            request.setNotifyUrl(notifyUrl);
+        }
+        request.setBizContent(
+                "{\"out_trade_no\":\"" + orderNo + "\","
+                + "\"total_amount\":\"" + amount + "\","
+                + "\"subject\":\"" + subject + "\"}");
+        try {
+            AlipayTradePrecreateResponse response = getClient().execute(request);
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", response.getCode());
+            result.put("msg", response.getMsg());
+            result.put("qr_code", response.getQrCode());
+            result.put("sub_msg", response.getSubMsg());
+            return result;
+        } catch (AlipayApiException e) {
+            log.error("预下单失败, orderNo={}", orderNo, e);
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", "40004");
+            result.put("sub_msg", e.getMessage());
+            result.put("qr_code", null);
+            return result;
+        }
     }
 
     /** 验签支付宝异步通知 — 对应 Python verify_notify */

@@ -75,6 +75,73 @@ public class PaymentController {
         }
     }
 
+    /** 当面付预下单 — 返回二维码链接，前端生成二维码图片 */
+    @GetMapping("/qrcode")
+    public Map<String, Object> createQRCode(
+            @RequestParam Long order_id,
+            HttpServletRequest request) {
+        User user = (User) request.getAttribute("currentUser");
+        Order order = orderService.getOrder(order_id, user.getId());
+        if (order == null) throw BizException.notFound("订单不存在");
+        if (!"pending".equals(order.getStatus())) throw BizException.badRequest("订单状态不可支付");
+
+        String subject = "电影票-" + order.getOrderNo();
+        Map<String, Object> result = alipayClient.createPrecreateQRCode(
+                order.getOrderNo(),
+                order.getTotalAmount().toPlainString(),
+                subject
+        );
+        String code = (String) result.get("code");
+        if ("10000".equals(code)) {
+            log.info("[qrcode] 预下单成功: orderId={}, orderNo={}", order_id, order.getOrderNo());
+            Map<String, Object> success = new HashMap<>();
+            success.put("success", true);
+            success.put("qr_code", result.get("qr_code"));
+            success.put("order_no", order.getOrderNo());
+            return success;
+        }
+        log.warn("[qrcode] 预下单失败: orderId={}, code={}, sub_msg={}", order_id, code, result.get("sub_msg"));
+        Map<String, Object> fail = new HashMap<>();
+        fail.put("success", false);
+        fail.put("message", result.getOrDefault("sub_msg", "预下单失败"));
+        return fail;
+    }
+
+    /** 查询订单支付状态 — 前端轮询用，后端查支付宝确认是否已付款 */
+    @GetMapping("/status")
+    public Map<String, Object> payStatus(
+            @RequestParam Long order_id,
+            HttpServletRequest request) {
+        User user = (User) request.getAttribute("currentUser");
+        Order order = orderService.getOrder(order_id, user.getId());
+        if (order == null) throw BizException.notFound("订单不存在");
+
+        // 如果已经是 paid 状态直接返回
+        if ("paid".equals(order.getStatus())) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", "paid");
+            result.put("success", true);
+            result.put("pickup_code", order.getPickupCode() != null ? order.getPickupCode() : "");
+            return result;
+        }
+
+        // 查支付宝确认
+        orderService.checkAndConfirmPayment(order);
+
+        // 重新查一次订单
+        Order updated = orderService.getOrder(order_id, user.getId());
+        Map<String, Object> result = new HashMap<>();
+        if (updated != null && "paid".equals(updated.getStatus())) {
+            result.put("status", "paid");
+            result.put("success", true);
+            result.put("pickup_code", updated.getPickupCode() != null ? updated.getPickupCode() : "");
+        } else {
+            result.put("status", "pending");
+            result.put("success", false);
+        }
+        return result;
+    }
+
     @PostMapping("/notify")
     public String payNotify(HttpServletRequest request) {
         Map<String, String> params = new HashMap<>();
