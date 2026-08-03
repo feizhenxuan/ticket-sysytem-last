@@ -43,8 +43,8 @@ public class AdminMovieController {
 
     @PutMapping("/{id}")
     public Object update(@PathVariable Long id, @RequestBody Movie movie) {
-        
-        movieService.updateMovieStatus(id, status);
+        movie.setId(id);
+        movieService.updateMovie(movie);
         return movie;
     }
 
