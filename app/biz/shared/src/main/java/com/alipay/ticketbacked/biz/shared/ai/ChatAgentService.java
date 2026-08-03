@@ -85,8 +85,9 @@ public class ChatAgentService {
                     needLLM = true;
                 }
             }
-            // 条件3: 消息含绝对日期但正则没抽到时间槽位
-            if (!needLLM && containsAbsoluteDate(content) && !extracted.containsKey("time_expression")) {
+            // 条件3: 消息含绝对日期但正则没抽到时间槽位（降低触发频率：只在有电影名时才兜底）
+            if (!needLLM && containsAbsoluteDate(content) && !extracted.containsKey("time_expression")
+                    && extracted.containsKey("movie_name")) {
                 needLLM = true;
             }
 
@@ -193,13 +194,17 @@ public class ChatAgentService {
                 systemContent += "\n当前用户ID: " + userId;
             }
 
-            // 5. 构建消息列表（含完整历史 — user + assistant）
+            // 5. 构建消息列表（截断历史，最多保留最近 10 轮对话避免超出上下文窗口）
             List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
             messages.add(new SystemMessage(systemContent));
 
             List<Map<String, Object>> history = parseJson(session.getMessages(), List.class);
             if (history != null) {
-                for (Map<String, Object> msg : history) {
+                // 最多保留最近 20 条历史消息（约 10 轮对话）
+                int maxHistory = 20;
+                int startIndex = Math.max(0, history.size() - maxHistory);
+                List<Map<String, Object>> trimmedHistory = history.subList(startIndex, history.size());
+                for (Map<String, Object> msg : trimmedHistory) {
                     String role = (String) msg.get("role");
                     String msgContent = (String) msg.get("content");
                     if ("user".equals(role) && msgContent != null) {

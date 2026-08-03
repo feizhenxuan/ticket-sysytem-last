@@ -55,7 +55,7 @@ public class ChatController {
         }
 
         final String sessionId = session_id;
-        SseEmitter emitter = new SseEmitter(120_000L); // 2分钟超时
+        SseEmitter emitter = new SseEmitter(300_000L); // 5分钟超时，避免 ReAct 多轮调用超时
 
         executor.execute(() -> {
             try {
