@@ -7,13 +7,8 @@ import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
 
-/**
- * ZDAL 数据源配置 — 通过 ZdalDataSourceBuilder 创建 DataSource Bean
- * DDS 控制台参数: appName=zzvonehxtickettest, appDsName=zzvonehxtickettest, version=v1.0.0, dbType=OB
- */
 @Configuration
 public class ZdalConfiguration {
-
     @Bean(initMethod = "init")
     public ZdalDataSource dataSource() {
         return ZdalDataSourceBuilder.create()

@@ -3,6 +3,7 @@ package com.alipay.ticketbacked.biz.shared.ai;
 import com.alipay.ticketbacked.biz.shared.service.MovieService;
 import com.alipay.ticketbacked.biz.shared.service.OrderService;
 import com.alipay.ticketbacked.common.dal.mapper.*;
+import com.alipay.ticketbacked.common.service.integration.AlipayClientWrapper;
 import com.alipay.ticketbacked.core.model.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -453,7 +454,7 @@ public class AgentFunctionConfig {
     }
 
     // refund_order — 对话中退票，LLM展示订单后用户确认，再调用此工具执行退款。
-    @Bean public ToolCallback refundOrder(OrderService os, SessionMapper sm) {
+    @Bean public ToolCallback refundOrder(OrderService os, SessionMapper sm, AlipayClientWrapper alipay) {
         return cb("refund_order", "退票退款。用户确认退票后调用此工具执行退款操作。order_id 和 user_id 会被系统自动注入。",
                 "{\"type\":\"object\",\"properties\":{\"order_id\":{\"type\":\"integer\",\"description\":\"要退款的订单ID\"},\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID（系统自动注入，无需关心）\"}},\"required\":[\"order_id\"]}",
                 input -> {
@@ -478,7 +479,15 @@ public class AgentFunctionConfig {
                         return "{\"error\":\"场次开场前2小时内不可退票\"}";
                     }
                 }
-                // 执行退款（更新订单状态 + 释放座位）
+                // 先调支付宝退款接口
+                String totalAmount = order.getTotalAmount() != null ? order.getTotalAmount().toPlainString() : "0";
+                Map<String, Object> refundResult = alipay.refund(order.getOrderNo(), totalAmount);
+                String code = (String) refundResult.get("code");
+                if (!"10000".equals(code)) {
+                    log.error("[refund_order] 支付宝退款失败: orderId={}, code={}, sub_msg={}", orderId, code, refundResult.get("sub_msg"));
+                    return "{\"error\":\"支付宝退款失败: " + refundResult.getOrDefault("sub_msg", "未知错误") + "\"}";
+                }
+                // 支付宝退款成功后再更新订单状态 + 释放座位
                 os.refundOrder(orderId, userId);
                 log.info("[refund_order] 退票成功: orderId={}, userId={}", orderId, userId);
                 var r = new LinkedHashMap<String,Object>();

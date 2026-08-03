@@ -31,6 +31,10 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateStatus">
+        UPDATE hx_movies SET status = #{status} WHERE id = #{id}
+    </update>
+
     <delete id="deleteById">
         DELETE FROM hx_movies WHERE id = #{id}
     </delete>

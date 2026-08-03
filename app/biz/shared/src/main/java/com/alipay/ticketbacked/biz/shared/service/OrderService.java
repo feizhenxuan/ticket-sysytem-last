@@ -341,6 +341,20 @@ public class OrderService {
         if (!"paid".equals(order.getStatus())) throw BizException.badRequest("只能退已支付订单");
 
         log.info("[refundOrder] orderId={}, sessionId={}, seatIds={}", orderId, order.getSessionId(), order.getSeatIds());
+
+        // 先调用支付宝沙箱退款 API，原路退款
+        if (order.getTotalAmount() != null) {
+            String totalAmount = order.getTotalAmount().toPlainString();
+            log.info("[refundOrder] 调用支付宝退款, orderNo={}, amount={}", order.getOrderNo(), totalAmount);
+            Map<String, Object> refundResult = alipayClient.refund(order.getOrderNo(), totalAmount);
+            String refundCode = (String) refundResult.get("code");
+            if (!"10000".equals(refundCode)) {
+                log.error("[refundOrder] 支付宝退款失败: {}", refundResult);
+                throw BizException.badRequest("支付宝退款失败: " + refundResult.get("sub_msg"));
+            }
+            log.info("[refundOrder] 支付宝退款成功, orderNo={}", order.getOrderNo());
+        }
+
         orderMapper.updateRefundStatus(orderId, "refunded", LocalDateTime.now());
         releaseSeatsForOrder(order);
     }

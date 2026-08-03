@@ -45,8 +45,23 @@ public class AdminCinemaController {
     }
 
     @GetMapping
-    public Object list(@RequestParam(defaultValue = "50") int limit) {
-        var cinemas = cinemaService.listCinemas(null, Math.min(limit, 100));
+    public Object list(@RequestParam(required = false) String search,
+                       @RequestParam(required = false) String city,
+                       @RequestParam(defaultValue = "50") int limit,
+                       @RequestParam(defaultValue = "0") int offset) {
+        List<Cinema> cinemas = cinemaMapper.findAll(9999);
+        if (search != null && !search.isBlank()) {
+            String kw = search.toLowerCase();
+            cinemas = cinemas.stream().filter(c ->
+                (c.getName() != null && c.getName().toLowerCase().contains(kw)) ||
+                (c.getAddress() != null && c.getAddress().toLowerCase().contains(kw))
+            ).collect(Collectors.toList());
+        }
+        if (city != null && !city.isBlank()) {
+            cinemas = cinemas.stream().filter(c -> city.equals(c.getCity())).collect(Collectors.toList());
+        }
+        int total = cinemas.size();
+        cinemas = cinemas.stream().skip(offset).limit(Math.min(limit, 9999)).collect(Collectors.toList());
         var items = cinemas.stream().map(c -> {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("id", c.getId());
@@ -59,7 +74,10 @@ public class AdminCinemaController {
             map.put("hall_count", hallMapper.findByCinemaId(c.getId()).size());
             return map;
         }).collect(Collectors.toList());
-        return Map.of("items", items, "total", items.size());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("items", items);
+        result.put("total", total);
+        return result;
     }
 
     @GetMapping("/{id}")
@@ -120,6 +138,13 @@ public class AdminCinemaController {
     @PutMapping("/halls/{hallId}")
     public Object updateHall(@PathVariable Long hallId, @RequestBody Hall hall) {
         hall.setId(hallId);
+        Hall existing = hallMapper.findById(hallId);
+        if (existing == null) throw BizException.notFound("影厅不存在");
+        if (hall.getCinemaId() == null) hall.setCinemaId(existing.getCinemaId());
+        if (hall.getName() == null) hall.setName(existing.getName());
+        if (hall.getHallType() == null) hall.setHallType(existing.getHallType());
+        if (hall.getTotalRows() == null) hall.setTotalRows(existing.getTotalRows());
+        if (hall.getTotalCols() == null) hall.setTotalCols(existing.getTotalCols());
         hallMapper.update(hall);
         return hall;
     }

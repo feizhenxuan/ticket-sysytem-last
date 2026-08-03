@@ -89,5 +89,6 @@ public class MovieService {
     // ===== Admin CRUD =====
     public void createMovie(Movie movie) { movieMapper.insert(movie); }
     public void updateMovie(Movie movie) { movieMapper.update(movie); }
+    public void updateMovieStatus(Long id, String status) { movieMapper.updateStatus(id, status); }
     public void deleteMovie(Long id) { movieMapper.deleteById(id); }
 }
