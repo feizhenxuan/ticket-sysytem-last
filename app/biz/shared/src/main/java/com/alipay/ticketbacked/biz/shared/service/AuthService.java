@@ -63,6 +63,9 @@ public class AuthService {
         if (!verified) {
             throw BizException.unauthorized("用户名或密码错误");
         }
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
+            throw BizException.badRequest("账号已被封禁，请联系管理员");
+        }
         Map<String, Object> claims = new HashMap<>();
         claims.put("user_id", user.getId());
         claims.put("username", user.getUsername());

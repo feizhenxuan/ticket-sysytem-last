@@ -69,4 +69,8 @@ public interface OrderMapper {
 
     /** Admin: 订单详情（带关联数据） */
     java.util.Map<String, Object> findByIdWithDetails(@Param("id") Long id);
+
+    /** Admin: 按用户ID统计订单数 */
+    @Select("SELECT COUNT(*) FROM hx_orders WHERE user_id = #{userId}")
+    int countByUserId(@Param("userId") Long userId);
 }
