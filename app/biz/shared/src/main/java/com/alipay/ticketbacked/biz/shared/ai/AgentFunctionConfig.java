@@ -173,7 +173,8 @@ public class AgentFunctionConfig {
                     try {
                         String datePart = dateStr.trim().split("\\s+")[0];
                         filterDate = java.time.LocalDate.parse(datePart);
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        log.debug("[search_sessions] 日期参数解析失败: {}", dateStr);
                     }
                 }
 

@@ -1,6 +1,7 @@
 package com.alipay.ticketbacked.biz.shared.service;
 
 import com.alipay.ticketbacked.common.dal.mapper.*;
+import com.alipay.ticketbacked.common.service.integration.AlipayClientWrapper;
 import com.alipay.ticketbacked.core.model.*;
 import com.alipay.ticketbacked.core.model.BizException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,11 +31,13 @@ public class OrderService {
     private final CinemaMapper cinemaMapper;
     private final HallMapper hallMapper;
     private final SeatMapper seatMapper;
+    private final AlipayClientWrapper alipayClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public OrderService(OrderMapper orderMapper, SessionMapper sessionMapper,
                         SessionSeatMapper sessionSeatMapper, MovieMapper movieMapper,
-                        CinemaMapper cinemaMapper, HallMapper hallMapper, SeatMapper seatMapper) {
+                        CinemaMapper cinemaMapper, HallMapper hallMapper, SeatMapper seatMapper,
+                        AlipayClientWrapper alipayClient) {
         this.orderMapper = orderMapper;
         this.sessionMapper = sessionMapper;
         this.sessionSeatMapper = sessionSeatMapper;
@@ -42,6 +45,7 @@ public class OrderService {
         this.cinemaMapper = cinemaMapper;
         this.hallMapper = hallMapper;
         this.seatMapper = seatMapper;
+        this.alipayClient = alipayClient;
     }
 
     /** 创建订单（锁定座位） */
@@ -87,13 +91,26 @@ public class OrderService {
         return order;
     }
 
-    /** 查看我的订单 */
+    /** 查看我的订单 — pending 订单会先查支付宝确认是否已付款，已付则更新为 paid */
     public List<Map<String, Object>> listOrders(Long userId, String statusFilter) {
         List<Order> orders = statusFilter != null && !statusFilter.isBlank()
                 ? orderMapper.findByUserIdAndStatus(userId, statusFilter)
                 : orderMapper.findByUserId(userId);
 
         if (orders.isEmpty()) return Collections.emptyList();
+
+        // 对 pending 订单查支付宝确认实际支付状态
+        for (Order order : orders) {
+            if ("pending".equals(order.getStatus())) {
+                checkAndConfirmPayment(order);
+            }
+        }
+        // 重新查一次（状态可能已更新）
+        if (statusFilter != null && !statusFilter.isBlank()) {
+            orders = orderMapper.findByUserIdAndStatus(userId, statusFilter);
+        } else {
+            orders = orderMapper.findByUserId(userId);
+        }
 
         // 预加载关联
         Set<Long> sessionIds = orders.stream().map(Order::getSessionId).collect(Collectors.toSet());
@@ -218,16 +235,63 @@ public class OrderService {
         return result;
     }
 
-    /** 取消订单（释放座位） */
+    /** 取消订单（释放座位） — 取消前先查支付宝，若已付款则自动退款再取消 */
     @Transactional
     public void cancelOrder(Long orderId, Long userId) {
         Order order = orderMapper.findByIdAndUser(orderId, userId);
         if (order == null) throw BizException.notFound("订单不存在");
         if (!"pending".equals(order.getStatus())) throw BizException.badRequest("只能取消待支付订单");
 
+        // 取消前先查支付宝，确认这笔订单是否已经付款
+        Map<String, Object> queryResult = alipayClient.queryTradeStatus(order.getOrderNo());
+        boolean queryFailed = Boolean.TRUE.equals(queryResult.get("query_failed"));
+        String tradeStatus = (String) queryResult.get("trade_status");
+
+        if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
+            // 用户已经付款了！走退款流程，而不是直接取消
+            log.warn("[cancelOrder] 订单 {} 在支付宝侧已付款(trade_status={}), 自动退款再取消", orderId, tradeStatus);
+            String totalAmount = order.getTotalAmount() != null
+                    ? order.getTotalAmount().toPlainString() : "0";
+            Map<String, Object> refundResult = alipayClient.refund(order.getOrderNo(), totalAmount);
+            String refundCode = (String) refundResult.get("code");
+            if ("10000".equals(refundCode)) {
+                log.info("[cancelOrder] 订单 {} 退款成功", orderId);
+            } else {
+                log.error("[cancelOrder] 订单 {} 退款失败: code={}, sub_msg={}", orderId, refundCode, refundResult.get("sub_msg"));
+                throw BizException.badRequest("支付宝侧已付款，退款失败，请联系客服");
+            }
+        } else if (queryFailed) {
+            // 查询本身失败，安全起见也不直接取消
+            log.warn("[cancelOrder] 订单 {} 查询支付宝状态失败，拒绝取消以防误退款", orderId);
+            throw BizException.badRequest("无法确认支付状态，请稍后重试或联系客服");
+        } else {
+            log.info("[cancelOrder] 订单 {} 支付宝侧未付款(trade_status={}), 正常取消", orderId, tradeStatus);
+        }
+
         log.info("[cancelOrder] orderId={}, sessionId={}, seatIds={}", orderId, order.getSessionId(), order.getSeatIds());
         orderMapper.updateCancelStatus(orderId, "cancelled", LocalDateTime.now());
         releaseSeatsForOrder(order);
+    }
+
+    /**
+     * 查支付宝确认 pending 订单是否已付款，已付则更新为 paid（复用 confirmPayment 逻辑）
+     * 用于刷新订单列表时补偿"用户付了钱但 return_url 未触发"的场景
+     */
+    @Transactional
+    public void checkAndConfirmPayment(Order order) {
+        if (order == null || order.getOrderNo() == null) return;
+        try {
+            Map<String, Object> queryResult = alipayClient.queryTradeStatus(order.getOrderNo());
+            if (Boolean.TRUE.equals(queryResult.get("query_failed"))) return;
+            String tradeStatus = (String) queryResult.get("trade_status");
+            if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
+                String tradeNo = (String) queryResult.get("trade_no");
+                log.info("[checkAndConfirmPayment] 订单 {} 支付宝侧已付款, 自动确认订单状态", order.getId());
+                confirmPayment(order.getOrderNo(), tradeNo);
+            }
+        } catch (Exception e) {
+            log.warn("[checkAndConfirmPayment] 订单 {} 查询支付宝异常: {}", order.getId(), e.getMessage());
+        }
     }
 
     /** 确认支付 */
