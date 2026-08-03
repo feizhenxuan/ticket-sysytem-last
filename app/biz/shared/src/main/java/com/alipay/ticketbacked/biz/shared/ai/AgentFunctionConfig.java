@@ -47,8 +47,8 @@ public class AgentFunctionConfig {
     }
 
     @Bean public ToolCallback searchMovies(MovieMapper mm) {
-        return cb("search_movies", "搜索电影列表，支持关键词/类型/排序。",
-                "{\"type\":\"object\",\"properties\":{\"keyword\":{\"type\":\"string\",\"description\":\"搜索关键词\"},\"genre\":{\"type\":\"string\",\"description\":\"电影类型\"},\"sort_by\":{\"type\":\"string\",\"description\":\"排序方式: rating或release\",\"default\":\"rating\"},\"status\":{\"type\":\"string\",\"description\":\"上映状态: showing或coming\",\"default\":\"showing\"},\"limit\":{\"type\":\"integer\",\"description\":\"返回数量(1-20)\",\"default\":10}},\"required\":[]}",
+        return cb("search_movies", "搜索电影列表，支持关键词/类型/排序。sort_by 可选 rating(评分高)、release(最近上映)、price(价格低，按最低票价排序)。",
+                "{\"type\":\"object\",\"properties\":{\"keyword\":{\"type\":\"string\",\"description\":\"搜索关键词\"},\"genre\":{\"type\":\"string\",\"description\":\"电影类型\"},\"sort_by\":{\"type\":\"string\",\"description\":\"排序方式: rating(评分高)或release(最近上映)或price(价格低)\",\"default\":\"rating\"},\"status\":{\"type\":\"string\",\"description\":\"上映状态: showing或coming\",\"default\":\"showing\"},\"limit\":{\"type\":\"integer\",\"description\":\"返回数量(1-20)\",\"default\":10}},\"required\":[]}",
                 input -> {
             try {
                 Map<String,Object> a = MAPPER.readValue(input, Map.class);
@@ -58,6 +58,7 @@ public class AgentFunctionConfig {
                 List<Movie> movies;
                 if (genre != null && !genre.isBlank()) movies = mm.findByGenre(genre, status, limit);
                 else if (kw != null && !kw.isBlank()) movies = mm.searchByKeyword(kw, status, limit);
+                else if ("price".equals(sort)) movies = mm.findOrderByMinPrice(status, limit);
                 else movies = "release".equals(sort) ? mm.findByStatusOrderByRelease(status, limit) : mm.findByStatusOrderByRating(status, limit);
                 List<Map<String,Object>> r = new ArrayList<>();
                 for (Movie m : movies) { var i = new LinkedHashMap<String,Object>(); i.put("id",m.getId()); i.put("title",m.getTitle()); i.put("rating",m.getRating()); i.put("genre",m.getGenre()); i.put("duration",m.getDuration()); i.put("poster_url",m.getPosterUrl()); i.put("director",m.getDirector()); r.add(i); }
@@ -153,13 +154,15 @@ public class AgentFunctionConfig {
     }
 
     @Bean public ToolCallback searchSessions(MovieMapper mm, CinemaMapper cm, SessionMapper sm) {
-        return cb("search_sessions", "查询某电影的排片场次。只返回用户定位5公里范围内的影院、且为当天及以后的场次。电影名和影院名支持模糊匹配。可指定具体日期过滤。",
-                "{\"type\":\"object\",\"properties\":{\"movie_name\":{\"type\":\"string\",\"description\":\"电影名称\"},\"cinema_name\":{\"type\":\"string\",\"description\":\"影院名称(可选)\"},\"date\":{\"type\":\"string\",\"description\":\"指定日期 yyyy-MM-dd 格式(可选,如2026-07-15)\"},\"lat\":{\"type\":\"number\",\"description\":\"用户纬度(系统自动注入)\"},\"lng\":{\"type\":\"number\",\"description\":\"用户经度(系统自动注入)\"}},\"required\":[\"movie_name\"]}",
+        return cb("search_sessions", "查询排片场次。只返回用户定位5公里范围内的影院、且为当天及以后的场次。电影名和影院名支持模糊匹配。可指定具体日期过滤。当用户问'价格低的/便宜的'时，传 sort_by=price 且可不传 movie_name，会返回附近最低价场次。当用户指定了时间段(如下午4点)时，传 time_preference 参数，会优先返回最接近该时间的场次并高亮标记。",
+                "{\"type\":\"object\",\"properties\":{\"movie_name\":{\"type\":\"string\",\"description\":\"电影名称(可选，不传时需传sort_by=price查最低价场次)\"},\"cinema_name\":{\"type\":\"string\",\"description\":\"影院名称(可选)\"},\"date\":{\"type\":\"string\",\"description\":\"指定日期 yyyy-MM-dd 格式(可选,如2026-07-15)\"},\"sort_by\":{\"type\":\"string\",\"description\":\"排序方式: price(按票价升序)，默认不排序按时间\"},\"time_preference\":{\"type\":\"string\",\"description\":\"用户期望的时间偏好，如'16:00'或'下午4点'，系统会筛选该时间前后1小时的场次并按接近度排序\"},\"lat\":{\"type\":\"number\",\"description\":\"用户纬度(系统自动注入)\"},\"lng\":{\"type\":\"number\",\"description\":\"用户经度(系统自动注入)\"}},\"required\":[]}",
                 input -> {
             try {
                 Map<String,Object> a = MAPPER.readValue(input, Map.class);
                 String movieName = (String) a.get("movie_name"), cinemaName = (String) a.get("cinema_name");
                 String dateStr = (String) a.get("date");
+                String sortBy = (String) a.get("sort_by");
+                String timePref = (String) a.get("time_preference");
                 double userLat = a.containsKey("lat") ? ((Number) a.get("lat")).doubleValue() : -1;
                 double userLng = a.containsKey("lng") ? ((Number) a.get("lng")).doubleValue() : -1;
                 boolean hasLocation = userLat > 0 && userLng > 0;
@@ -168,12 +171,99 @@ public class AgentFunctionConfig {
                 java.time.LocalDate filterDate = null;
                 if (dateStr != null && !dateStr.isBlank()) {
                     try {
-                        // 支持 yyyy-MM-dd 或 yyyy-MM-dd 后面跟时间段
                         String datePart = dateStr.trim().split("\\s+")[0];
                         filterDate = java.time.LocalDate.parse(datePart);
                     } catch (Exception ignored) {
-                        // 日期解析失败，忽略不按日期过滤
                     }
+                }
+
+                // 解析 time_preference 为目标时间（用于按接近度排序+高亮）
+                Integer targetHour = null;
+                Integer targetMinute = null;
+                if (timePref != null && !timePref.isBlank()) {
+                    // 尝试解析 "16:00" / "下午4点" / "4点" / "16点" / "下午4:00" 等格式
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                            "(?:(?:下午|傍晚)\\s*)?(\\d{1,2})[:点：](\\d{2})?"
+                    ).matcher(timePref);
+                    if (m.find()) {
+                        int h = Integer.parseInt(m.group(1));
+                        int min = m.group(2) != null ? Integer.parseInt(m.group(2)) : 0;
+                        // 下午/傍晚 且小时<=12 → +12
+                        if (timePref.contains("下午") || timePref.contains("傍晚")) {
+                            if (h <= 12) h += 12;
+                        }
+                        if (h >= 0 && h < 24 && min >= 0 && min < 60) {
+                            targetHour = h;
+                            targetMinute = min;
+                        }
+                    }
+                }
+
+                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime farFuture = now.plusYears(1);
+
+                // 构建 cinemaId -> Cinema 的映射（复用）
+                Map<Long, Cinema> cinemaMap = cm.findAllNoLimit().stream()
+                        .collect(Collectors.toMap(Cinema::getId, c -> c, (a1, b1) -> a1));
+
+                // ===== 无电影名 + sort_by=price：查附近最低价场次 =====
+                if ((movieName == null || movieName.isBlank()) && "price".equals(sortBy)) {
+                    if (!hasLocation) return MAPPER.writeValueAsString(List.of(Map.of("error","无法获取您的位置，请允许定位后重试")));
+                    // 5km范围内影院ID
+                    Set<Long> nearbyCinemaIds = cinemaMap.values().stream()
+                            .filter(c -> c.getLongitude() != null && c.getLatitude() != null)
+                            .filter(c -> haversineKm(userLng, userLat,
+                                    c.getLongitude().doubleValue(), c.getLatitude().doubleValue()) <= 5.0)
+                            .map(Cinema::getId)
+                            .collect(Collectors.toSet());
+                    if (nearbyCinemaIds.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","您附近5公里内暂无影院")));
+
+                    // 查所有当天及以后的可用场次，按价格升序
+                    List<Session> allSessions = sm.findAllAvailableOrderByPrice(now, 200);
+                    // 过滤附近影院
+                    List<Session> nearby = allSessions.stream()
+                            .filter(s -> nearbyCinemaIds.contains(s.getCinemaId()))
+                            .collect(Collectors.toList());
+                    // 日期过滤
+                    if (filterDate != null) {
+                        java.time.LocalDate fDate = filterDate;
+                        nearby = nearby.stream()
+                                .filter(s -> s.getStartTime() != null && s.getStartTime().toLocalDate().equals(fDate))
+                                .collect(Collectors.toList());
+                    }
+                    if (nearby.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","附近暂无可用场次")));
+                    // 限制返回10条
+                    nearby = nearby.stream().limit(10).collect(Collectors.toList());
+
+                    // 构建 movieId -> Movie 映射
+                    Map<Long, String> movieTitleMap = new HashMap<>();
+                    for (Session s : nearby) {
+                        if (!movieTitleMap.containsKey(s.getMovieId())) {
+                            Movie m = mm.findById(s.getMovieId());
+                            movieTitleMap.put(s.getMovieId(), m != null ? m.getTitle() : "未知电影");
+                        }
+                    }
+
+                    List<Map<String,Object>> items = new ArrayList<>();
+                    for (Session s : nearby) {
+                        var i = new LinkedHashMap<String,Object>();
+                        i.put("id", s.getId());
+                        i.put("start_time", s.getStartTime() != null ? s.getStartTime().toString() : "");
+                        i.put("end_time", s.getEndTime() != null ? s.getEndTime().toString() : "");
+                        i.put("price", s.getPrice());
+                        i.put("status", s.getStatus());
+                        i.put("movie_title", movieTitleMap.getOrDefault(s.getMovieId(), "未知电影"));
+                        Cinema cin = cinemaMap.get(s.getCinemaId());
+                        i.put("cinema_id", s.getCinemaId());
+                        i.put("cinema_name", cin != null ? cin.getName() : "");
+                        items.add(i);
+                    }
+                    return MAPPER.writeValueAsString(items);
+                }
+
+                // ===== 有电影名的正常场次查询 =====
+                if (movieName == null || movieName.isBlank()) {
+                    return MAPPER.writeValueAsString(List.of(Map.of("error","请提供电影名称，或使用sort_by=price查询低价场次")));
                 }
 
                 List<Movie> mm2 = mm.searchByKeyword(movieName, "showing", 10);
@@ -182,24 +272,17 @@ public class AgentFunctionConfig {
                 if (mm2.size() > 1) { List<String> t = mm2.stream().map(Movie::getTitle).collect(Collectors.toList()); return MAPPER.writeValueAsString(List.of(Map.of("need_confirmation",true,"type","movie","options",t,"message","找到多部电影："+String.join(" / ",t)))); }
                 Movie movie = mm2.get(0);
 
-                // 日期过滤：只返回当天及以后的场次
-                LocalDateTime now = LocalDateTime.now();
-                LocalDateTime farFuture = now.plusYears(1);
-
                 // 影院过滤逻辑
                 List<Session> sessions;
                 if (cinemaName != null && !cinemaName.isBlank()) {
-                    // 用户指定了影院名 —— 只是按该影院查
                     List<Cinema> cm2 = cm.searchByName(cinemaName, 5);
                     if (cm2.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到影院: "+cinemaName)));
                     if (cm2.size() > 1) { List<String> n = cm2.stream().map(Cinema::getName).collect(Collectors.toList()); return MAPPER.writeValueAsString(List.of(Map.of("need_confirmation",true,"type","cinema","options",n,"message","找到多家影院："+String.join(" / ",n)))); }
                     sessions = sm.findByMovieAndCinema(movie.getId(), cm2.get(0).getId());
-                    // 再按日期过滤
                     sessions = sessions.stream()
                             .filter(s -> s.getStartTime() != null && !s.getStartTime().isBefore(now))
                             .collect(Collectors.toList());
                 } else if (hasLocation) {
-                    // 未指定影院但有用户定位 —— 只查5km范围内的影院的场次
                     List<Cinema> allCinemas = cm.findAllNoLimit();
                     Set<Long> nearbyCinemaIds = allCinemas.stream()
                             .filter(c -> c.getLongitude() != null && c.getLatitude() != null)
@@ -208,13 +291,11 @@ public class AgentFunctionConfig {
                             .map(Cinema::getId)
                             .collect(Collectors.toSet());
                     if (nearbyCinemaIds.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","您附近5公里内暂无影院有排片")));
-                    // 查该电影的所有场次，再在内存按日期+附近影院过滤
                     sessions = sm.findByMovieIdAndDate(movie.getId(), now, farFuture);
                     sessions = sessions.stream()
                             .filter(s -> nearbyCinemaIds.contains(s.getCinemaId()))
                             .collect(Collectors.toList());
                 } else {
-                    // 无定位也未指定影院 —— 查所有当天及以后的场次
                     sessions = sm.findByMovieIdAndDate(movie.getId(), now, farFuture);
                 }
 
@@ -226,13 +307,44 @@ public class AgentFunctionConfig {
                     sessions = sessions.stream()
                             .filter(s -> s.getStartTime() != null
                                     && s.getStartTime().toLocalDate().equals(fDate))
-                            .collect(java.util.stream.Collectors.toList());
+                            .collect(Collectors.toList());
                     if (sessions.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","该日期没有找到排片")));
                 }
 
-                // 构建 cinemaId -> Cinema 的映射
-                Map<Long, Cinema> cinemaMap = cm.findAllNoLimit().stream()
-                        .collect(Collectors.toMap(Cinema::getId, c -> c, (a1, b1) -> a1));
+                // sort_by=price 时按票价升序排序
+                if ("price".equals(sortBy)) {
+                    sessions = sessions.stream()
+                            .sorted(java.util.Comparator.comparing(Session::getPrice))
+                            .collect(Collectors.toList());
+                }
+
+                // time_preference 有值时：过滤前后1小时场次 + 按时间差排序 + 高亮最接近的
+                LocalDateTime targetTime = null;
+                if (targetHour != null && targetMinute != null) {
+                    // 构建目标时间：用 filterDate 或今天，拼上 hour:minute
+                    java.time.LocalDate baseDate = filterDate != null ? filterDate : java.time.LocalDate.now();
+                    targetTime = LocalDateTime.of(baseDate, java.time.LocalTime.of(targetHour, targetMinute));
+
+                    final LocalDateTime tgt = targetTime;
+                    // 过滤：场次在目标时间前后1小时内
+                    sessions = sessions.stream()
+                            .filter(s -> s.getStartTime() != null)
+                            .filter(s -> {
+                                long diffMin = Math.abs(java.time.Duration.between(s.getStartTime(), tgt).toMinutes());
+                                return diffMin <= 120; // 前后2小时内
+                            })
+                            .collect(Collectors.toList());
+
+                    if (sessions.isEmpty()) {
+                        return MAPPER.writeValueAsString(List.of(Map.of("error","该时间段前后1小时内未找到合适场次")));
+                    }
+
+                    // 按时间差绝对值升序排序
+                    sessions = sessions.stream()
+                            .sorted(java.util.Comparator.comparingLong(
+                                    s -> Math.abs(java.time.Duration.between(s.getStartTime(), tgt).toMinutes())))
+                            .collect(Collectors.toList());
+                }
 
                 List<Map<String,Object>> items = new ArrayList<>();
                 for (Session s : sessions) {
@@ -246,7 +358,15 @@ public class AgentFunctionConfig {
                     Cinema cin = cinemaMap.get(s.getCinemaId());
                     i.put("cinema_id", s.getCinemaId());
                     i.put("cinema_name", cin != null ? cin.getName() : "");
+                    // 高亮最接近的场次（第一个，已按时间差排序）
+                    if (targetTime != null) {
+                        i.put("is_highlight", false); // 先都设false
+                    }
                     items.add(i);
+                }
+                // 标记第一条为高亮
+                if (!items.isEmpty() && targetTime != null) {
+                    ((Map<String,Object>) items.get(0)).put("is_highlight", true);
                 }
                 return MAPPER.writeValueAsString(items);
             } catch (Exception e) { return "[{\"error\":\"查询场次失败\"}]"; }
@@ -254,8 +374,8 @@ public class AgentFunctionConfig {
     }
 
     @Bean public ToolCallback getUserOrders(OrderService os) {
-        return cb("get_user_orders", "查询当前登录用户的订单列表，可按状态筛选。user_id 会被系统自动注入，不需要提供。",
-                "{\"type\":\"object\",\"properties\":{\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID（系统自动注入，无需关心）\"},\"status_filter\":{\"type\":\"string\",\"description\":\"状态筛选: paid/unpaid/refunded\"}},\"required\":[]}",
+        return cb("get_user_orders", "查询当前登录用户的订单列表。user_id 会被系统自动注入。退票场景必须传 status_filter=paid 只查已支付订单。",
+                "{\"type\":\"object\",\"properties\":{\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID（系统自动注入，无需关心）\"},\"status_filter\":{\"type\":\"string\",\"description\":\"状态筛选: paid(已支付)/pending(待支付)/cancelled(已取消)/refunded(已退款)。退票场景必须传paid\"}},\"required\":[\"status_filter\"]}",
                 input -> {
             try { Map<String,Object> a = MAPPER.readValue(input, Map.class); Object uidObj = a.get("user_id");
                 if (uidObj == null) { log.warn("[get_user_orders] user_id 缺失, input={}", input); return "[{\"error\":\"用户ID缺失，无法查询订单\"}]"; }
@@ -266,7 +386,39 @@ public class AgentFunctionConfig {
         });
     }
 
-    // refund_order 已移除 — 退票由前端订单卡片按钮触发 GUI 退款流程，LLM 不执行退款操作。
+    // refund_order — 对话中退票，LLM展示订单后用户确认，再调用此工具执行退款。
+    @Bean public ToolCallback refundOrder(OrderService os) {
+        return cb("refund_order", "退票退款。用户确认退票后调用此工具执行退款操作。order_id 和 user_id 会被系统自动注入。",
+                "{\"type\":\"object\",\"properties\":{\"order_id\":{\"type\":\"integer\",\"description\":\"要退款的订单ID\"},\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID（系统自动注入，无需关心）\"}},\"required\":[\"order_id\"]}",
+                input -> {
+            try {
+                Map<String,Object> a = MAPPER.readValue(input, Map.class);
+                Object oidObj = a.get("order_id");
+                Object uidObj = a.get("user_id");
+                if (oidObj == null) return "{\"error\":\"缺少订单ID\"}";
+                if (uidObj == null) return "{\"error\":\"用户ID缺失\"}";
+                Long orderId = ((Number) oidObj).longValue();
+                Long userId = ((Number) uidObj).longValue();
+                // 先查订单确认状态
+                Order order = os.getOrder(orderId, userId);
+                if (order == null) return "{\"error\":\"订单不存在\"}";
+                if (!"paid".equals(order.getStatus())) return "{\"error\":\"只能退已支付订单\"}";
+                // 执行退款（更新订单状态 + 释放座位）
+                os.refundOrder(orderId, userId);
+                log.info("[refund_order] 退票成功: orderId={}, userId={}", orderId, userId);
+                var r = new LinkedHashMap<String,Object>();
+                r.put("success", true);
+                r.put("message", "退款成功，退款将原路返回");
+                r.put("order_id", orderId);
+                r.put("order_no", order.getOrderNo());
+                r.put("refund_amount", order.getTotalAmount());
+                return MAPPER.writeValueAsString(r);
+            } catch (Exception e) {
+                log.error("[refund_order] 退票异常", e);
+                return "{\"error\":\"退票失败: " + e.getMessage() + "\"}";
+            }
+        });
+    }
 
     @Bean public ToolCallback getMovieDetail(MovieMapper mm) {
         return cb("get_movie_detail", "查询电影详细信息。",

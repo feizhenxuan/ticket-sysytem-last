@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.AdminMapper">
+
+    <insert id="insert" parameterType="com.alipay.ticketbacked.core.model.Admin" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hx_admins (username, password_hash, role, is_active, gmt_create, gmt_modify)
+        VALUES (#{username}, #{passwordHash}, #{role}, #{isActive}, NOW(), NOW())
+    </insert>
+
+</mapper>

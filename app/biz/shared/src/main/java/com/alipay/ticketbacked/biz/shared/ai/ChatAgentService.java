@@ -302,9 +302,9 @@ public class ChatAgentService {
                                     && lat != null && lng != null) {
                                 toolArgs = injectLocationIntoArgs(toolArgs, lat, lng);
                             }
-                            // 为 get_user_orders 强制注入当前登录用户ID，
+                            // 为 get_user_orders 和 refund_order 强制注入当前登录用户ID，
                             // LLM 不需要也不应该自己提供 user_id（安全 + 防遗漏）
-                            if ("get_user_orders".equals(toolName) && userId != null) {
+                            if (("get_user_orders".equals(toolName) || "refund_order".equals(toolName)) && userId != null) {
                                 toolArgs = injectUserIdIntoArgs(toolArgs, userId);
                             }
                             String result;

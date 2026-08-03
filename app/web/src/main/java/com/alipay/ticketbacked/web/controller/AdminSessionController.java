@@ -119,15 +119,33 @@ public class AdminSessionController {
     }
 
     /**
+     * 清空所有场次和座位状态
+     * POST /api/admin/sessions/cleanup-all
+     */
+    @PostMapping("/cleanup-all")
+    public Object cleanupAll() {
+        // 先删场次（场次表行数少，快）
+        int deletedSessions = sessionMapper.deleteAll();
+        // 再删座位状态：每次删1个session_id的座位（~96条），循环删
+        Long minId = sessionSeatMapper.findMinSessionId();
+        Long maxId = sessionSeatMapper.findMaxSessionId();
+        int totalDeletedSeats = 0;
+        if (minId != null && maxId != null) {
+            for (long sid = minId; sid <= maxId; sid++) {
+                totalDeletedSeats += sessionSeatMapper.deleteBySessionIdRange(sid, sid);
+            }
+        }
+        return Map.of("deleted_sessions", deletedSessions, "deleted_seat_statuses", totalDeletedSeats);
+    }
+
+    /**
      * 清理过期场次 — 删除指定日期之前的所有场次及其座位状态
-     * DELETE /api/admin/sessions/cleanup?before_date=2026-07-30
+     * POST /api/admin/sessions/cleanup?before_date=2026-07-30
      */
     @PostMapping("/cleanup")
     public Object cleanupExpired(@RequestParam String before_date) {
         java.time.LocalDateTime before = java.time.LocalDate.parse(before_date).atStartOfDay();
-        // 1. 删除过期场次
         int deletedSessions = sessionMapper.deleteBeforeDate(before);
-        // 2. 删除孤儿座位状态（场次已被删除，座位状态引用的session_id不存在了）
         int deletedSeatStatuses = sessionSeatMapper.deleteAllOrphanSeatStatuses();
         return Map.of("before_date", before_date, "deleted_sessions", deletedSessions, "deleted_seat_statuses", deletedSeatStatuses);
     }

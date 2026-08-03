@@ -63,4 +63,16 @@ public class JwtUtil {
         }
         return null;
     }
+
+    /** 从 token 中提取 admin_id */
+    public Long extractAdminId(String token) {
+        Claims claims = parseToken(token);
+        if (claims == null) return null;
+        Object aid = claims.get("admin_id");
+        if (aid instanceof Number) return ((Number) aid).longValue();
+        if (aid instanceof String) {
+            try { return Long.parseLong((String) aid); } catch (NumberFormatException e) { return null; }
+        }
+        return null;
+    }
 }

@@ -18,6 +18,7 @@ public class SessionDTO {
     // 附加关联信息（API 端 join 后注入）
     private String cinemaName;
     private String cinemaAddress;
+    private String cinemaCity;
     private String movieTitle;
     private String posterUrl;
     private String hallName;
@@ -43,6 +44,8 @@ public class SessionDTO {
     public void setCinemaName(String cinemaName) { this.cinemaName = cinemaName; }
     public String getCinemaAddress() { return cinemaAddress; }
     public void setCinemaAddress(String cinemaAddress) { this.cinemaAddress = cinemaAddress; }
+    public String getCinemaCity() { return cinemaCity; }
+    public void setCinemaCity(String cinemaCity) { this.cinemaCity = cinemaCity; }
     public String getMovieTitle() { return movieTitle; }
     public void setMovieTitle(String movieTitle) { this.movieTitle = movieTitle; }
     public String getPosterUrl() { return posterUrl; }

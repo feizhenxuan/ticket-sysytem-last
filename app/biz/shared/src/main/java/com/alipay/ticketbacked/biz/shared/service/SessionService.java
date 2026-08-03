@@ -88,6 +88,7 @@ public class SessionService {
             Cinema c = cinemaMap.get(s.getCinemaId());
             dto.setCinemaName(c != null ? c.getName() : "");
             dto.setCinemaAddress(c != null ? c.getAddress() : "");
+            dto.setCinemaCity(c != null ? c.getCity() : "");
             Movie m = movieMap.get(s.getMovieId());
             dto.setMovieTitle(m != null ? m.getTitle() : "");
             dto.setPosterUrl(m != null ? m.getPosterUrl() : null);

@@ -52,6 +52,14 @@ public interface SessionSeatMapper {
     @org.apache.ibatis.annotations.Delete("DELETE FROM hx_session_seats WHERE session_id NOT IN (SELECT id FROM hx_sessions)")
     int deleteAllOrphanSeatStatuses();
 
+    /** 按session_id范围删除座位状态（OceanBase兼容，无子查询） */
+    @org.apache.ibatis.annotations.Delete("DELETE FROM hx_session_seats WHERE session_id >= #{minId} AND session_id <= #{maxId}")
+    int deleteBySessionIdRange(@Param("minId") long minId, @Param("maxId") long maxId);
+
+    /** 查最小的 session_id */
+    @Select("SELECT MIN(session_id) FROM hx_session_seats")
+    Long findMinSessionId();
+
     /** 查最大的 session_id */
     @Select("SELECT MAX(session_id) FROM hx_session_seats")
     Long findMaxSessionId();

@@ -164,20 +164,35 @@ public class AdminCinemaController {
     /**
      * 超级批量初始化 — 一次调用完成一个城市的全部数据:
      * 影厅 + 座位 + 场次 + 场次座位状态
-     * GET /api/admin/cinemas/batch-init?city=石家庄&date=2026-07-30
+     * POST /api/admin/cinemas/batch-init?city=郑州&dates=2026-08-01,2026-08-02,...
      */
     @PostMapping("/batch-init")
-    public Object batchInit(@RequestParam String city, @RequestParam(defaultValue = "2026-07-30") String date,
-                            @RequestParam(defaultValue = "2026-07-31") String date2) {
+    public Object batchInit(@RequestParam String city,
+                            @RequestParam(required = false) String dates,
+                            @RequestParam(required = false, defaultValue = "2026-07-30") String date,
+                            @RequestParam(required = false, defaultValue = "2026-07-31") String date2) {
         List<Cinema> allCinemas = cinemaMapper.findAll(9999);
         int hallCount = 0, seatCount = 0, sessionCount = 0, seatStatusCount = 0;
 
-        Long[] movieIds = {17L, 44L, 50L, 1L, 56L};
+        // 7部电影：安昂传奇、肖申克、挽救计划、痴迷、迈克尔杰克逊、超级马力欧、星际穿越
+        Long[] movieIds = {17L, 50L, 44L, 4L, 54L, 56L, 27L};
+        // 6个时间段
         String[][] timeSlots = {
             {"10:00:00", "12:00:00", "38.0"},
-            {"14:00:00", "16:00:00", "42.0"},
-            {"18:00:00", "20:00:00", "48.0"}
+            {"12:30:00", "14:30:00", "42.0"},
+            {"15:00:00", "17:00:00", "45.0"},
+            {"17:30:00", "19:30:00", "48.0"},
+            {"20:00:00", "22:00:00", "52.0"},
+            {"22:30:00", "00:30:00", "46.0"}
         };
+
+        // 解析日期列表
+        String[] dateList;
+        if (dates != null && !dates.isEmpty()) {
+            dateList = dates.split(",");
+        } else {
+            dateList = new String[]{date, date2};
+        }
 
         for (Cinema cinema : allCinemas) {
             if (!city.equals(cinema.getCity())) continue;
@@ -207,16 +222,23 @@ public class AdminCinemaController {
                 seatCount += seatMapper.initSeatsForHall(hall.getId(), rows, cols);
             }
 
-            // 3. 创建场次（2天 x 3场/天 = 6场）
+            // 3. 创建场次（每天6场，7部电影轮流分配）
             int mi = 0;
-            for (String d : new String[]{date, date2}) {
+            for (String d : dateList) {
                 for (String[] slot : timeSlots) {
+                    // 处理跨日场次（22:30 -> 00:30 次日）
+                    String endDate = d;
+                    if (slot[1].compareTo(slot[0]) < 0) {
+                        // end time is next day
+                        java.time.LocalDate nextDay = java.time.LocalDate.parse(d).plusDays(1);
+                        endDate = nextDay.toString();
+                    }
                     Session session = new Session();
                     session.setMovieId(movieIds[mi % movieIds.length]);
                     session.setCinemaId(cinema.getId());
                     session.setHallId(hall.getId());
                     session.setStartTime(java.time.LocalDateTime.parse(d + "T" + slot[0]));
-                    session.setEndTime(java.time.LocalDateTime.parse(d + "T" + slot[1]));
+                    session.setEndTime(java.time.LocalDateTime.parse(endDate + "T" + slot[1]));
                     session.setPrice(new java.math.BigDecimal(slot[2]));
                     session.setStatus("available");
                     try {
