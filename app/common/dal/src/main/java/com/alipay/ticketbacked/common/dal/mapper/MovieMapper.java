@@ -36,6 +36,7 @@ public interface MovieMapper {
 
     int insert(Movie movie);
     int update(Movie movie);
+    int updateStatus(@Param("id") Long id, @Param("status") String status);
     int deleteById(@Param("id") Long id);
 
     /** 所有有场次的电影ID（用于过滤） */

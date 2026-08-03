@@ -43,8 +43,8 @@ public class AdminMovieController {
 
     @PutMapping("/{id}")
     public Object update(@PathVariable Long id, @RequestBody Movie movie) {
-        movie.setId(id);
-        movieService.updateMovie(movie);
+        
+        movieService.updateMovieStatus(id, status);
         return movie;
     }
 
@@ -56,10 +56,10 @@ public class AdminMovieController {
 
     @PatchMapping("/{id}/status")
     public Object changeStatus(@PathVariable Long id, @RequestParam String status) {
-        Movie movie = new Movie();
-        movie.setId(id);
-        movie.setStatus(status);
-        movieService.updateMovie(movie);
+        
+        
+        
+        movieService.updateMovieStatus(id, status);
         return Map.of("message", "状态已更新");
     }
 }
