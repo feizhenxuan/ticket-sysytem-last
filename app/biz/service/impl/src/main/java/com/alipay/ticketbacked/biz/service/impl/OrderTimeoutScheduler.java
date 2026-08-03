@@ -60,7 +60,7 @@ public class OrderTimeoutScheduler {
             if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
                 // 用户已经付款了！直接确认为已支付（生成取票码、标记座位为已售）
                 log.info("[Scheduler] 订单 {} 在支付宝侧已付款(trade_status={}), 确认为已支付", order.getId(), tradeStatus);
-                String tradeNo = (String) queryResult.get("trade_no");
+                queryResult.get("trade_no");
                 orderService.checkAndConfirmPayment(order);
                 confirmedCount++;
             } else if (queryFailed) {
