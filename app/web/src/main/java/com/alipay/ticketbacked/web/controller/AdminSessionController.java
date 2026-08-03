@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 管理后台 - 场次管理 — 对应 Python api/admin_sessions.py
+ * 管理后台 - 场次管理 — 对应 Python api/admin_sessions.pyETE FROM hx_session_seats;
  */
 @RestController
 @RequestMapping("/api/admin/sessions")
