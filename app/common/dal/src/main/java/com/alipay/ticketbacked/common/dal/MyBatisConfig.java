@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import javax.sql.DataSource;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -29,6 +30,7 @@ public class MyBatisConfig {
         configuration.setMapUnderscoreToCamelCase(true);
         // 注册自定义 LocalDateTime TypeHandler，规避 MySQL JDBC 驱动对 NULL 值的空指针 Bug
         configuration.getTypeHandlerRegistry().register(LocalDateTime.class, new SafeLocalDateTimeTypeHandler());
+        configuration.getTypeHandlerRegistry().register(LocalDate.class, new SafeLocalDateTypeHandler());
         factory.setConfiguration(configuration);
         return factory.getObject();
     }
