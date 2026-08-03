@@ -406,6 +406,7 @@ public class ChatAgentService {
             case "search_cinemas" -> "cinema_list";
             case "search_sessions" -> "session_list";
             case "get_user_orders" -> "order_list";
+            case "refund_order" -> "refund_result";
             default -> null;
         };
         if (cardType == null) return;
