@@ -102,6 +102,10 @@ public class AdminCinemaController {
 
     @DeleteMapping("/{id}")
     public Object delete(@PathVariable Long id) {
+        List<Session> sessions = sessionMapper.findByCinemaId(id);
+        if (sessions != null && !sessions.isEmpty()) {
+            throw BizException.badRequest("该影院有 " + sessions.size() + " 个关联排场，无法删除");
+        }
         cinemaService.deleteCinema(id);
         return Map.of("message", "删除成功");
     }

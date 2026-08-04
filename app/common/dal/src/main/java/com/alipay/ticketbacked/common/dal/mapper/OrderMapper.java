@@ -73,4 +73,8 @@ public interface OrderMapper {
     /** Admin: 按用户ID统计订单数 */
     @Select("SELECT COUNT(*) FROM hx_orders WHERE user_id = #{userId}")
     int countByUserId(@Param("userId") Long userId);
+
+    /** Admin: 按场次ID统计订单数 */
+    @Select("SELECT COUNT(*) FROM hx_orders WHERE session_id = #{sessionId}")
+    int countBySessionId(@Param("sessionId") Long sessionId);
 }

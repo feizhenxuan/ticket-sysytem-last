@@ -1,10 +1,12 @@
 package com.alipay.ticketbacked.web.controller;
 
 import com.alipay.ticketbacked.biz.shared.service.MovieService;
+import com.alipay.ticketbacked.common.dal.mapper.SessionMapper;
 import com.alipay.ticketbacked.core.model.Movie;
 import com.alipay.ticketbacked.core.model.BizException;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -15,9 +17,11 @@ import java.util.Map;
 public class AdminMovieController {
 
     private final MovieService movieService;
+    private final SessionMapper sessionMapper;
 
-    public AdminMovieController(MovieService movieService) {
+    public AdminMovieController(MovieService movieService, SessionMapper sessionMapper) {
         this.movieService = movieService;
+        this.sessionMapper = sessionMapper;
     }
 
     @GetMapping
@@ -50,6 +54,10 @@ public class AdminMovieController {
 
     @DeleteMapping("/{id}")
     public Object delete(@PathVariable Long id) {
+        List<?> sessions = sessionMapper.findByMovieId(id);
+        if (sessions != null && !sessions.isEmpty()) {
+            throw BizException.badRequest("该电影有 " + sessions.size() + " 个关联排场，无法删除");
+        }
         movieService.deleteMovie(id);
         return Map.of("message", "删除成功");
     }

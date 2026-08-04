@@ -6,10 +6,12 @@ import com.alipay.ticketbacked.common.dal.mapper.SessionSeatMapper;
 import com.alipay.ticketbacked.common.dal.mapper.SeatMapper;
 import com.alipay.ticketbacked.common.dal.mapper.HallMapper;
 import com.alipay.ticketbacked.common.dal.mapper.CinemaMapper;
+import com.alipay.ticketbacked.common.dal.mapper.OrderMapper;
 import com.alipay.ticketbacked.core.model.Session;
 import com.alipay.ticketbacked.core.model.Cinema;
 import com.alipay.ticketbacked.core.model.Hall;
 import com.alipay.ticketbacked.core.model.Seat;
+import com.alipay.ticketbacked.core.model.BizException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,18 +28,21 @@ public class AdminSessionController {
     private final SessionMapper sessionMapper;
     private final SessionSeatMapper sessionSeatMapper;
     private final SeatMapper seatMapper;
+    private final OrderMapper orderMapper;
     private final HallMapper hallMapper;
     private final CinemaMapper cinemaMapper;
 
     public AdminSessionController(SessionService sessionService, SessionMapper sessionMapper,
                                    SessionSeatMapper sessionSeatMapper, SeatMapper seatMapper,
-                                   HallMapper hallMapper, CinemaMapper cinemaMapper) {
+                                   HallMapper hallMapper, CinemaMapper cinemaMapper,
+                                   OrderMapper orderMapper) {
         this.sessionService = sessionService;
         this.sessionMapper = sessionMapper;
         this.sessionSeatMapper = sessionSeatMapper;
         this.seatMapper = seatMapper;
         this.hallMapper = hallMapper;
         this.cinemaMapper = cinemaMapper;
+        this.orderMapper = orderMapper;
     }
 
     @GetMapping
@@ -70,6 +75,10 @@ public class AdminSessionController {
 
     @DeleteMapping("/{id}")
     public Object delete(@PathVariable Long id) {
+        int orderCount = orderMapper.countBySessionId(id);
+        if (orderCount > 0) {
+            throw BizException.badRequest("该场次有 " + orderCount + " 个关联订单，无法删除");
+        }
         sessionService.deleteSession(id);
         return Map.of("message", "删除成功");
     }
