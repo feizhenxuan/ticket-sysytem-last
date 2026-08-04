@@ -233,6 +233,15 @@ public class AgentFunctionConfig {
                                 .filter(s -> s.getStartTime() != null && s.getStartTime().toLocalDate().equals(fDate))
                                 .collect(Collectors.toList());
                     }
+                    // time_preference 过滤（与有电影名分支一致）
+                    if (targetHour != null && targetMinute != null) {
+                        java.time.LocalDate baseDate = filterDate != null ? filterDate : java.time.LocalDate.now();
+                        LocalDateTime tgt = LocalDateTime.of(baseDate, java.time.LocalTime.of(targetHour, targetMinute));
+                        nearby = nearby.stream()
+                                .filter(s -> s.getStartTime() != null)
+                                .filter(s -> Math.abs(java.time.Duration.between(s.getStartTime(), tgt).toMinutes()) <= 120)
+                                .collect(Collectors.toList());
+                    }
                     if (nearby.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","附近暂无可用场次")));
                     // 限制返回10条
                     nearby = nearby.stream().limit(10).collect(Collectors.toList());
@@ -263,7 +272,7 @@ public class AgentFunctionConfig {
                     return MAPPER.writeValueAsString(items);
                 }
 
-                // ===== 无电影名：查询附近所有场次（按时间排序，最多返回10条） =====
+                // ===== 无电影名：查询附近所有场次（支持日期+时间过滤，最多返回10条） =====
                 if (movieName == null || movieName.isBlank()) {
                     List<Session> nearbySessions;
                     if (hasLocation) {
@@ -288,10 +297,45 @@ public class AgentFunctionConfig {
                                 .filter(s -> s.getStartTime() != null && !s.getStartTime().isBefore(now))
                                 .collect(Collectors.toList());
                     }
-                    nearbySessions = nearbySessions.stream()
-                            .sorted(java.util.Comparator.comparing(Session::getStartTime))
-                            .limit(10)
-                            .collect(Collectors.toList());
+
+                    // 日期过滤（与有电影名分支一致）
+                    if (filterDate != null) {
+                        java.time.LocalDate fDate = filterDate;
+                        nearbySessions = nearbySessions.stream()
+                                .filter(s -> s.getStartTime() != null
+                                        && s.getStartTime().toLocalDate().equals(fDate))
+                                .collect(Collectors.toList());
+                    }
+
+                    // time_preference 过滤 + 按接近度排序（与有电影名分支一致）
+                    LocalDateTime targetTime = null;
+                    if (targetHour != null && targetMinute != null) {
+                        java.time.LocalDate baseDate = filterDate != null ? filterDate : java.time.LocalDate.now();
+                        targetTime = LocalDateTime.of(baseDate, java.time.LocalTime.of(targetHour, targetMinute));
+                        final LocalDateTime tgt = targetTime;
+                        // 过滤：场次在目标时间前后2小时内
+                        nearbySessions = nearbySessions.stream()
+                                .filter(s -> s.getStartTime() != null)
+                                .filter(s -> Math.abs(java.time.Duration.between(s.getStartTime(), tgt).toMinutes()) <= 120)
+                                .collect(Collectors.toList());
+                        // 按时间差绝对值升序排序
+                        final LocalDateTime tgtSort = targetTime;
+                        nearbySessions = nearbySessions.stream()
+                                .sorted(java.util.Comparator.comparingLong(
+                                        s -> Math.abs(java.time.Duration.between(s.getStartTime(), tgtSort).toMinutes())))
+                                .collect(Collectors.toList());
+                    } else {
+                        // 无时间偏好时按时间排序
+                        nearbySessions = nearbySessions.stream()
+                                .sorted(java.util.Comparator.comparing(Session::getStartTime))
+                                .collect(Collectors.toList());
+                    }
+
+                    if (nearbySessions.isEmpty()) {
+                        return MAPPER.writeValueAsString(List.of(Map.of("error",
+                                targetTime != null ? "该时间段前后2小时内未找到合适场次" : "暂无场次信息")));
+                    }
+                    nearbySessions = nearbySessions.stream().limit(10).collect(Collectors.toList());
                     if (nearbySessions.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","暂无场次信息")));
                     // 补充电影和影院名称
                     Map<Long, String> movieTitleMap = new HashMap<>();
@@ -318,7 +362,14 @@ public class AgentFunctionConfig {
                         i.put("start_time", s.getStartTime() != null ? s.getStartTime().format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")) : "");
                         i.put("price", s.getPrice());
                         i.put("status", s.getStatus());
+                        if (targetTime != null) {
+                            i.put("is_highlight", false);
+                        }
                         items.add(i);
+                    }
+                    // 高亮最接近的场次（第一条，已按时间差排序）
+                    if (!items.isEmpty() && targetTime != null) {
+                        items.get(0).put("is_highlight", true);
                     }
                     return MAPPER.writeValueAsString(items);
                 }

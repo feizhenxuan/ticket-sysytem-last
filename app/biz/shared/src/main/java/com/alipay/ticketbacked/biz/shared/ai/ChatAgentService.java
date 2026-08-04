@@ -193,6 +193,9 @@ public class ChatAgentService {
             if (userId != null) {
                 systemContent += "\n当前用户ID: " + userId;
             }
+            // 注入当前日期，让 LLM 能将"明天""后天"等相对日期转为绝对日期传给 date 参数
+            systemContent += "\n当前日期: " + java.time.LocalDate.now().toString()
+                    + "（星期" + "一二三四五六日".charAt(java.time.LocalDate.now().getDayOfWeek().getValue() % 7) + "）";
 
             // 5. 构建消息列表（截断历史，最多保留最近 10 轮对话避免超出上下文窗口）
             List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
@@ -306,6 +309,11 @@ public class ChatAgentService {
                             if (("search_sessions".equals(toolName) || "search_cinemas".equals(toolName))
                                     && lat != null && lng != null) {
                                 toolArgs = injectLocationIntoArgs(toolArgs, lat, lng);
+                            }
+                            // 为 search_sessions 强制注入时间参数（date + time_preference），
+                            // 从 session slots 中的 time_expression 解析，LLM 可能遗漏传参
+                            if ("search_sessions".equals(toolName) && session != null) {
+                                toolArgs = injectTimeIntoArgs(toolArgs, session);
                             }
                             // 为 get_user_orders 和 refund_order 强制注入当前登录用户ID，
                             // LLM 不需要也不应该自己提供 user_id（安全 + 防遗漏）
@@ -743,6 +751,122 @@ public class ChatAgentService {
             log.warn("[Agent] 注入定位失败, 原始参数: {}", toolArgs);
             return toolArgs;
         }
+    }
+
+    /**
+     * 向 search_sessions 的工具参数 JSON 中注入时间参数（date + time_preference）。
+     * 从 session slots 中的 time_expression 解析，兜底保障 LLM 遗漏传参时时间过滤仍生效。
+     * 只有当 LLM 没有传过对应参数时才注入，不覆盖 LLM 已传的值。
+     */
+    @SuppressWarnings("unchecked")
+    private String injectTimeIntoArgs(String toolArgs, ChatSession session) {
+        try {
+            Map<String, Object> args = MAPPER.readValue(toolArgs, Map.class);
+            Map<String, Object> slots = parseJson(session.getSlots(), Map.class);
+            if (slots == null || !slots.containsKey("time_expression")) {
+                return toolArgs; // 没有时间槽位，不需要注入
+            }
+            String timeExpr = String.valueOf(slots.get("time_expression"));
+            if (timeExpr == null || timeExpr.isBlank()) {
+                return toolArgs;
+            }
+
+            log.info("[Agent] 时间注入: 从 slots 解析 time_expression={}", timeExpr);
+
+            // 解析 date
+            java.time.LocalDate resolvedDate = resolveDate(timeExpr);
+            // 解析 time_preference
+            String resolvedTimePref = resolveTimePreference(timeExpr);
+
+            // LLM 没传 date 时才注入
+            if (resolvedDate != null && !args.containsKey("date")) {
+                args.put("date", resolvedDate.toString());
+                log.info("[Agent] 时间注入 date={}", resolvedDate);
+            }
+            // LLM 没传 time_preference 时才注入
+            if (resolvedTimePref != null && !args.containsKey("time_preference")) {
+                args.put("time_preference", resolvedTimePref);
+                log.info("[Agent] 时间注入 time_preference={}", resolvedTimePref);
+            }
+
+            return MAPPER.writeValueAsString(args);
+        } catch (Exception e) {
+            log.warn("[Agent] 注入时间参数失败, 原始参数: {}", toolArgs);
+            return toolArgs;
+        }
+    }
+
+    /**
+     * 从 time_expression 中解析出日期（java.time.LocalDate）。
+     * 支持：今天/明天/后天/大后天/周X/下周X/yyyy-MM-dd/N月N号
+     */
+    private java.time.LocalDate resolveDate(String timeExpr) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        // 已经是 yyyy-MM-dd 格式
+        if (timeExpr.startsWith("20") && timeExpr.length() >= 10) {
+            try {
+                return java.time.LocalDate.parse(timeExpr.substring(0, 10));
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        // 相对日期
+        if (timeExpr.contains("今天")) return today;
+        if (timeExpr.contains("明天")) return today.plusDays(1);
+        if (timeExpr.contains("后天")) return today.plusDays(2);
+        if (timeExpr.contains("大后天")) return today.plusDays(3);
+        // 周X
+        java.util.regex.Matcher weekM = java.util.regex.Pattern.compile(
+                "(?:本周|下周)?周([一二三四五六日天])").matcher(timeExpr);
+        if (weekM.find()) {
+            int targetDayOfWeek = "一二三四五六日天".indexOf(weekM.group(1)) + 1; // 1-7
+            int todayDayOfWeek = today.getDayOfWeek().getValue(); // 1(Mon)-7(Sun)
+            int diff = targetDayOfWeek - todayDayOfWeek;
+            if (timeExpr.contains("下周")) {
+                diff += 7;
+            } else if (diff < 0) {
+                diff += 7; // 本周内还没到，算本周
+            }
+            if (diff == 0) diff = 0; // 今天
+            return today.plusDays(diff);
+        }
+        // N月N号
+        java.util.regex.Matcher absM = java.util.regex.Pattern.compile(
+                "(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*[号日]").matcher(timeExpr);
+        if (absM.find()) {
+            int month = Integer.parseInt(absM.group(1));
+            int day = Integer.parseInt(absM.group(2));
+            int year = java.time.Year.now().getValue();
+            java.time.LocalDate candidate = java.time.LocalDate.of(year, month, day);
+            if (candidate.isBefore(today)) {
+                candidate = candidate.plusYears(1);
+            }
+            return candidate;
+        }
+        return null;
+    }
+
+    /**
+     * 从 time_expression 中解析出时间偏好（HH:mm 格式）。
+     * 支持：9:30 / 9点30 / 下午4点 / 晚上8点 / 上午10点
+     */
+    private String resolveTimePreference(String timeExpr) {
+        // 检测上午/下午/晚上修饰
+        boolean isAfternoon = timeExpr.contains("下午") || timeExpr.contains("傍晚") || timeExpr.contains("晚上");
+        // 匹配 HH:MM 或 HH点 或 HH点MM
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "(\\d{1,2})[:点：](\\d{2})?").matcher(timeExpr);
+        if (m.find()) {
+            int h = Integer.parseInt(m.group(1));
+            int min = m.group(2) != null ? Integer.parseInt(m.group(2)) : 0;
+            if (isAfternoon && h <= 12) {
+                h += 12;
+            }
+            if (h >= 0 && h < 24 && min >= 0 && min < 60) {
+                return String.format("%02d:%02d", h, min);
+            }
+        }
+        return null;
     }
 
     /** 向 get_user_orders 的工具参数 JSON 中强制注入当前登录用户ID */
