@@ -64,6 +64,8 @@ public class AdminLogAspect {
         if (l.contains("delete") || "DELETE".equals(h)) return l.contains("hall") ? "删除影厅" : "删除";
         return h + " " + m;
     }
-    private Long extractTargetId(String path) { for (String p : path.split("/")) { try { return Long.parseLong(p); } catch (Exception ignored) {} } return null; }
+    private Long extractTargetId(String path) { for (String p : path.split("/")) { try { return Long.parseLong(p); } catch (Exception ignored) {
+        // This catch statement is intentionally empty
+    } } return null; }
     private String extractTargetName(Object r) { if (r instanceof Map) { Map<?,?> m = (Map<?,?>)r; Object n = m.get("title"); if (n==null) n=m.get("name"); if (n==null) n=m.get("message"); if (n!=null) return n.toString(); } return null; }
 }
