@@ -63,6 +63,26 @@ public class AdminSessionController {
     public Object create(@RequestBody Session session) {
         if (session.getStatus() == null) session.setStatus("available");
         sessionService.createSession(session);
+
+        // 自动初始化座位：先确保影厅有座位，再初始化场次座位状态
+        if (session.getId() != null && session.getHallId() != null) {
+            Long hallId = session.getHallId();
+            // 检查影厅是否已有座位
+            List<Seat> existingSeats = seatMapper.findByHallId(hallId);
+            if (existingSeats == null || existingSeats.isEmpty()) {
+                // 影厅没有座位，先根据影厅行列数初始化座位
+                Hall hall = hallMapper.findById(hallId);
+                if (hall != null) {
+                    int rows = hall.getTotalRows() != null ? hall.getTotalRows() : 8;
+                    int cols = hall.getTotalCols() != null ? hall.getTotalCols() : 12;
+                    seatMapper.initSeatsForHall(hallId, rows, cols);
+                }
+            }
+            // 初始化场次座位状态
+            int seatCount = sessionSeatMapper.initSeatsForSession(session.getId(), hallId);
+            System.out.println("[createSession] 场次 " + session.getId() + " 初始化 " + seatCount + " 个座位");
+        }
+
         return session;
     }
 
