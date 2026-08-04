@@ -98,8 +98,10 @@ public class ChatController {
      * 获取某对话的完整消息 — 对应 Python /api/chat/sessions/{id}/messages
      */
     @GetMapping("/sessions/{sessionId}/messages")
-    public Map<String, Object> getSessionMessages(@PathVariable String sessionId) {
-        List<Map<String, Object>> messages = chatAgentService.getSessionMessages(sessionId);
+    public Map<String, Object> getSessionMessages(@PathVariable String sessionId, HttpServletRequest request) {
+        User user = (User) request.getAttribute("currentUser");
+        Long userId = user != null ? user.getId() : null;
+        List<Map<String, Object>> messages = chatAgentService.getSessionMessages(sessionId, userId);
         return Map.of("messages", messages, "session_id", sessionId);
     }
 
@@ -107,8 +109,10 @@ public class ChatController {
      * 删除对话 — 对应 Python /api/chat/sessions/{id}
      */
     @DeleteMapping("/sessions/{sessionId}")
-    public Map<String, Object> deleteSession(@PathVariable String sessionId) {
-        chatAgentService.deleteSession(sessionId);
+    public Map<String, Object> deleteSession(@PathVariable String sessionId, HttpServletRequest request) {
+        User user = (User) request.getAttribute("currentUser");
+        Long userId = user != null ? user.getId() : null;
+        chatAgentService.deleteSession(sessionId, userId);
         return Map.of("message", "对话已删除");
     }
 }

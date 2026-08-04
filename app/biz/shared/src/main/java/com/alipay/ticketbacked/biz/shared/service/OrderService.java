@@ -129,7 +129,7 @@ public class OrderService {
         Map<Long, Map<String, Object>> sessionMap = new HashMap<>();
         for (Session s : sessions) {
             Map<String, Object> info = new HashMap<>();
-            info.put("start_time", s.getStartTime());
+            info.put("start_time", s.getStartTime() != null ? s.getStartTime().toString() : "");
             info.put("price", s.getPrice());
             Movie m = movieMap.get(s.getMovieId());
             info.put("movie_title", m != null ? m.getTitle() : "");
@@ -150,7 +150,7 @@ public class OrderService {
             item.put("ticket_count", o.getTicketCount());
             item.put("total_amount", o.getTotalAmount());
             item.put("status", o.getStatus());
-            item.put("created_at", o.getGmtCreate());
+            item.put("created_at", o.getGmtCreate() != null ? o.getGmtCreate().toString() : "");
             item.putAll(sessionMap.getOrDefault(o.getSessionId(), Collections.emptyMap()));
             return item;
         }).collect(Collectors.toList());

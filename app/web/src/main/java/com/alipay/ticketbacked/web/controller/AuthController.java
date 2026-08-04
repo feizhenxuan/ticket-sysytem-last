@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.util.Map;
 
 /**
@@ -27,7 +28,7 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public Map<String, Object> register(@RequestBody AuthRequest req) {
+    public Map<String, Object> register(@Valid @RequestBody AuthRequest req) {
         log.info("[register] 收到注册请求, username={}", req.getUsername());
         TokenResponse token = authService.register(req);
         log.info("[register] 注册成功, username={}", req.getUsername());
@@ -35,7 +36,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public Map<String, Object> login(@RequestBody AuthRequest req) {
+    public Map<String, Object> login(@Valid @RequestBody AuthRequest req) {
         log.info("[login] 收到登录请求, username={}", req.getUsername());
         TokenResponse token = authService.login(req);
         log.info("[login] 登录成功, username={}", req.getUsername());

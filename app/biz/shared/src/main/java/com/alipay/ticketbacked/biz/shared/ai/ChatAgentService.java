@@ -81,7 +81,8 @@ public class ChatAgentService {
             if (!needLLM && extracted.isEmpty() && content.length() > 5 && !isGreeting(content)) {
                 // 只有当意图不是 reject/refund/order 这种不需要槽位的才需要 LLM
                 if (intent != IntentDetector.Intent.REJECT
-                        && intent != IntentDetector.Intent.QUERY_ORDER) {
+                        && intent != IntentDetector.Intent.QUERY_ORDER
+                        && intent != IntentDetector.Intent.REFUND_TICKET) {
                     needLLM = true;
                 }
             }
@@ -116,7 +117,11 @@ public class ChatAgentService {
                 // 注入对话历史，让回复有上下文连续性
                 List<Map<String, Object>> rejectHistory = parseJson(session.getMessages(), List.class);
                 if (rejectHistory != null) {
-                    for (Map<String, Object> msg : rejectHistory) {
+                    // 截断历史，最多保留最近 20 条（与主路径一致）
+                    int maxHistory = 20;
+                    int startIndex = Math.max(0, rejectHistory.size() - maxHistory);
+                    List<Map<String, Object>> trimmedHistory = rejectHistory.subList(startIndex, rejectHistory.size());
+                    for (Map<String, Object> msg : trimmedHistory) {
                         String role = (String) msg.get("role");
                         String msgContent = (String) msg.get("content");
                         if ("user".equals(role) && msgContent != null) {
@@ -193,9 +198,14 @@ public class ChatAgentService {
             if (userId != null) {
                 systemContent += "\n当前用户ID: " + userId;
             }
-            // 注入当前日期，让 LLM 能将"明天""后天"等相对日期转为绝对日期传给 date 参数
-            systemContent += "\n当前日期: " + java.time.LocalDate.now().toString()
-                    + "（星期" + "一二三四五六日".charAt(java.time.LocalDate.now().getDayOfWeek().getValue() % 7) + "）";
+
+            // 4b. 槽位完整性预检 — 当电影+影院槽位齐全时，构建强制工具调用指令
+            //     解决 Case1（一步直达）和 Case2（电影+影院直接拉卡片）以及多轮跨轮跳步
+            String forceToolHint = buildSlotCompletionHint(slots, intent);
+            if (forceToolHint != null) {
+                systemContent += "\n\n" + forceToolHint;
+                log.info("[Agent] 槽位预检: 槽位齐全, 注入强制工具调用指令");
+            }
 
             // 5. 构建消息列表（截断历史，最多保留最近 10 轮对话避免超出上下文窗口）
             List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
@@ -293,6 +303,12 @@ public class ChatAgentService {
                 // stream 完成后判断
                 if (!tcBuilders.isEmpty()) {
                     // 有 tool calls：执行工具，回灌 messages，继续循环
+                    // 如果 LLM 在工具调用轮同时输出了文字，保存下来（可能不会再有纯文字轮）
+                    String toolRoundText = textBuilder.toString().trim();
+                    if (!toolRoundText.isEmpty()) {
+                        fullReply = toolRoundText;
+                    }
+
                     List<ToolResponseMessage.ToolResponse> toolResponses = new ArrayList<>();
                     AssistantMessage assistantMsg = buildAssistantMessage(tcBuilders);
                     messages.add(assistantMsg);
@@ -310,14 +326,14 @@ public class ChatAgentService {
                                     && lat != null && lng != null) {
                                 toolArgs = injectLocationIntoArgs(toolArgs, lat, lng);
                             }
-                            // 为 search_sessions 强制注入时间参数（date + time_preference），
-                            // 从 session slots 中的 time_expression 解析，LLM 可能遗漏传参
-                            if ("search_sessions".equals(toolName) && session != null) {
-                                toolArgs = injectTimeIntoArgs(toolArgs, session);
+                            // 为 search_sessions 自动注入槽位中的时间参数：
+                            // 如果槽位中有 time_expression（如"明天 上午 9点"），且工具参数中没有 date/time_preference，自动注入
+                            if ("search_sessions".equals(toolName)) {
+                                toolArgs = injectTimeSlotsIntoArgs(toolArgs, session);
                             }
                             // 为 get_user_orders 和 refund_order 强制注入当前登录用户ID，
                             // LLM 不需要也不应该自己提供 user_id（安全 + 防遗漏）
-                            if (("get_user_orders".equals(toolName) || "refund_order".equals(toolName)) && userId != null) {
+                            if (("get_user_orders".equals(toolName) || "refund_order".equals(toolName) || "cancel_order".equals(toolName)) && userId != null) {
                                 toolArgs = injectUserIdIntoArgs(toolArgs, userId);
                             }
                             String result;
@@ -331,6 +347,29 @@ public class ChatAgentService {
 
                             // 卡片先攒到 pendingCards，等文字回复完再推
                             collectCardEvent(toolName, result, pendingCards);
+
+                            // 如果 cancel_order 或 refund_order 成功，清除之前的 order_list 卡片
+                            // 并推送 order_status_update 事件让前端更新历史卡片状态
+                            if (("cancel_order".equals(toolName) || "refund_order".equals(toolName))
+                                    && result != null && !result.contains("error")) {
+                                pendingCards.removeIf(card -> "order_list".equals(card.get("card_type")));
+                                log.info("[Agent] {} 成功，清除过时的 order_list 卡片", toolName);
+                                // 解析 order_id 和新状态，推事件让前端更新历史卡片
+                                try {
+                                    Map<String, Object> rMap = MAPPER.readValue(result, Map.class);
+                                    Object orderIdObj = rMap.get("order_id");
+                                    String newStatus = (String) rMap.get("status");
+                                    if (orderIdObj != null && newStatus != null) {
+                                        eventCallback.accept(Map.of(
+                                                "type", "order_status_update",
+                                                "order_id", orderIdObj,
+                                                "status", newStatus));
+                                        log.info("[Agent] 推送 order_status_update: order_id={}, status={}", orderIdObj, newStatus);
+                                    }
+                                } catch (Exception ex) {
+                                    log.warn("[Agent] 解析 {} 结果失败", toolName);
+                                }
+                            }
 
                             toolResponses.add(new ToolResponseMessage.ToolResponse(
                                     toolName != null ? toolName : "unknown",
@@ -377,11 +416,20 @@ public class ChatAgentService {
                     gotReply = true;
                     break;
                 }
+
+                // 如果到这一步 textBuilder 有内容但 trim 后为空（如只有空白），
+                // 且之前在工具调用轮已保存了文字，也算 gotReply
+                if (!fullReply.isEmpty() && iteration == MAX_ITERATIONS - 1) {
+                    gotReply = true;
+                }
             }
 
             if (!gotReply) {
-                fullReply = "我在帮您查询时遇到了一些问题，能再说详细一点吗？";
-                eventCallback.accept(Map.of("type", "text", "content", fullReply));
+                // 如果 fullReply 不为空（工具调用轮的文字），使用它而不是兜底消息
+                if (fullReply.isEmpty()) {
+                    fullReply = "我在帮您查询时遇到了一些问题，能再说详细一点吗？";
+                    eventCallback.accept(Map.of("type", "text", "content", fullReply));
+                }
                 log.warn("[Agent] 超过最大迭代次数 {}", MAX_ITERATIONS);
             }
 
@@ -420,6 +468,7 @@ public class ChatAgentService {
             case "search_sessions" -> "session_list";
             case "get_user_orders" -> "order_list";
             case "refund_order" -> "refund_result";
+            // cancel_order 是操作结果，不推卡片，AI 用文字告知即可
             default -> null;
         };
         if (cardType == null) return;
@@ -442,6 +491,15 @@ public class ChatAgentService {
 
             if (items.isEmpty()) return;
 
+            // 过滤无效的场次 item（没有 start_time 或 price 的）
+            if ("session_list".equals(cardType)) {
+                items = items.stream()
+                        .filter(item -> item.get("start_time") != null && !"".equals(item.get("start_time")))
+                        .filter(item -> item.get("price") != null)
+                        .collect(java.util.stream.Collectors.toList());
+                if (items.isEmpty()) return;
+            }
+
             log.info("[Agent] 收集卡片: type={}, items={}", cardType, items.size());
             pendingCards.add(Map.of(
                     "type", "card",
@@ -459,8 +517,9 @@ public class ChatAgentService {
      */
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> deduplicateCards(List<Map<String, Object>> cards) {
-        if (cards == null || cards.size() <= 1) return cards;
+        if (cards == null || cards.isEmpty()) return cards;
 
+        // 先按 card_type 分组
         Map<String, Map<String, Object>> cardByType = new LinkedHashMap<>();
         for (Map<String, Object> card : cards) {
             String ct = (String) card.get("card_type");
@@ -484,9 +543,16 @@ public class ChatAgentService {
                 existing.put("items", merged);
             }
         }
+
+        // 智能过滤：如果有 session_list 卡片，丢弃 cinema_list（场次卡片已含影院信息）
+        if (cardByType.containsKey("session_list") && cardByType.containsKey("cinema_list")) {
+            cardByType.remove("cinema_list");
+            log.info("[Agent] 卡片过滤: 有场次卡片时丢弃影院列表卡片");
+        }
+
         List<Map<String, Object>> result = new ArrayList<>(cardByType.values());
         if (result.size() < cards.size()) {
-            log.info("[Agent] 卡片去重: {} -> {}", cards.size(), result.size());
+            log.info("[Agent] 卡片去重/过滤: {} -> {}", cards.size(), result.size());
         }
         return result;
     }
@@ -521,15 +587,27 @@ public class ChatAgentService {
         return result;
     }
 
-    /** 获取某对话的完整消息 */
-    public List<Map<String, Object>> getSessionMessages(String sessionId) {
+    /** 获取某对话的完整消息（校验归属） */
+    public List<Map<String, Object>> getSessionMessages(String sessionId, Long userId) {
         ChatSession session = chatSessionMapper.findBySessionId(sessionId);
         if (session == null) return Collections.emptyList();
+        if (session.getUserId() != null && userId != null
+                && !session.getUserId().equals(userId.intValue())) {
+            log.warn("[getSessionMessages] 用户 {} 尝试读取不属于自己的会话 {}", userId, sessionId);
+            return Collections.emptyList();
+        }
         return parseJson(session.getMessages(), List.class);
     }
 
-    /** 删除对话 */
-    public void deleteSession(String sessionId) {
+    /** 删除对话（校验归属） */
+    public void deleteSession(String sessionId, Long userId) {
+        ChatSession session = chatSessionMapper.findBySessionId(sessionId);
+        if (session == null) return;
+        if (session.getUserId() != null && userId != null
+                && !session.getUserId().equals(userId.intValue())) {
+            log.warn("[deleteSession] 用户 {} 尝试删除不属于自己的会话 {}", userId, sessionId);
+            return;
+        }
         chatSessionMapper.deleteBySessionId(sessionId);
     }
 
@@ -659,7 +737,15 @@ public class ChatAgentService {
 
     private ChatSession getOrCreateSession(String sessionId, Long userId) {
         ChatSession session = chatSessionMapper.findBySessionId(sessionId);
-        if (session != null) return session;
+        // 校验会话归属：已存在的 session 必须属于当前用户
+        if (session != null) {
+            if (session.getUserId() != null && userId != null
+                    && !session.getUserId().equals(userId.intValue())) {
+                log.warn("[getOrCreateSession] 用户 {} 尝试访问不属于自己的会话 {}", userId, sessionId);
+                return null;
+            }
+            return session;
+        }
 
         session = new ChatSession();
         session.setSessionId(sessionId);
@@ -739,6 +825,50 @@ public class ChatAgentService {
                 .orElse(null);
     }
 
+    /**
+     * 槽位完整性预检 — 判断当前槽位是否足以直接调用 search_sessions。
+     * 当"电影名 + 影院名"都存在时（无论是否在同一轮提取），返回强制工具调用指令。
+     * 这解决了：
+     *   Case1: 电影+影院+时间+数量 → 一步直达场次卡片
+     *   Case2: 电影+影院 → 直接拉起场次选择卡片
+     *   多轮跳步: 第一轮说影院、第二轮说电影 → 自动合并后直接查场次
+     */
+    private String buildSlotCompletionHint(Map<String, Object> slots, IntentDetector.Intent intent) {
+        if (slots == null || slots.isEmpty()) return null;
+        if (intent != IntentDetector.Intent.BOOK_TICKET) return null;
+
+        String movieName = (String) slots.get("movie_name");
+        String cinemaName = (String) slots.get("cinema_name");
+        String timeExpr = (String) slots.get("time_expression");
+
+        // 必须同时有电影名和影院名
+        if (movieName == null || movieName.isBlank()) return null;
+        if (cinemaName == null || cinemaName.isBlank()) return null;
+
+        // QUERY_CINEMA 意图时也允许触发（Case2: "附近万达影院有没有《xxx》电影？"）
+        if (intent != IntentDetector.Intent.BOOK_TICKET
+                && intent != IntentDetector.Intent.QUERY_CINEMA) return null;
+
+        StringBuilder hint = new StringBuilder();
+        hint.append("## 重要：槽位已齐全，必须立即调用工具\n");
+        hint.append("当前已收集到完整信息：电影=").append(movieName)
+            .append("，影院=").append(cinemaName);
+        if (timeExpr != null && !timeExpr.isBlank()) {
+            hint.append("，时间=").append(timeExpr);
+        }
+        hint.append("。\n");
+        hint.append("你必须在本轮回复中立即调用 search_sessions 工具查询场次，");
+        hint.append("参数：movie_name=\"").append(movieName).append("\"");
+        hint.append(", cinema_name=\"").append(cinemaName).append("\"");
+        if (timeExpr != null && !timeExpr.isBlank()) {
+            hint.append("（系统会自动从槽位注入 date 和 time_preference，你无需手动传时间参数）");
+        }
+        hint.append("。\n");
+        hint.append("调用工具后，用自然语言简要告诉用户找到了几场，并说\"请选择场次进入选座\"。\n");
+        hint.append("绝对不要追问用户任何信息，绝对不要只回复文字而不调用工具。");
+        return hint.toString();
+    }
+
     /** 向 search_sessions 的工具参数 JSON 中注入用户经纬度 */
     @SuppressWarnings("unchecked")
     private String injectLocationIntoArgs(String toolArgs, Double lat, Double lng) {
@@ -753,120 +883,74 @@ public class ChatAgentService {
         }
     }
 
-    /**
-     * 向 search_sessions 的工具参数 JSON 中注入时间参数（date + time_preference）。
-     * 从 session slots 中的 time_expression 解析，兜底保障 LLM 遗漏传参时时间过滤仍生效。
-     * 只有当 LLM 没有传过对应参数时才注入，不覆盖 LLM 已传的值。
-     */
+    /** 向 search_sessions 的工具参数中自动注入槽位中的时间参数 */
     @SuppressWarnings("unchecked")
-    private String injectTimeIntoArgs(String toolArgs, ChatSession session) {
+    private String injectTimeSlotsIntoArgs(String toolArgs, ChatSession session) {
         try {
             Map<String, Object> args = MAPPER.readValue(toolArgs, Map.class);
+            // 从 session slots 中提取 time_expression
             Map<String, Object> slots = parseJson(session.getSlots(), Map.class);
-            if (slots == null || !slots.containsKey("time_expression")) {
-                return toolArgs; // 没有时间槽位，不需要注入
-            }
-            String timeExpr = String.valueOf(slots.get("time_expression"));
-            if (timeExpr == null || timeExpr.isBlank()) {
-                return toolArgs;
+            if (slots == null) return toolArgs;
+            String timeExpr = (String) slots.get("time_expression");
+            if (timeExpr == null || timeExpr.isBlank()) return toolArgs;
+
+            // 如果 LLM 已经传了 date 和 time_preference，不覆盖
+            boolean hasDate = args.containsKey("date") && args.get("date") != null
+                    && !((String) args.get("date")).isBlank();
+            boolean hasTimePref = args.containsKey("time_preference") && args.get("time_preference") != null
+                    && !((String) args.get("time_preference")).isBlank();
+
+            // 解析 time_expression:
+            // 格式1: "明天 上午 9点" / "今天 下午 14:30" / "后天 上午 10:00"
+            // 格式2: "2026-08-05 上午 09:00" (绝对日期)
+            java.util.regex.Matcher relMatcher = java.util.regex.Pattern.compile(
+                    "(今天|明天|后天|大后天)"
+            ).matcher(timeExpr);
+            java.util.regex.Matcher absMatcher = java.util.regex.Pattern.compile(
+                    "(\\d{4}-\\d{2}-\\d{2})"
+            ).matcher(timeExpr);
+
+            java.time.LocalDate parsedDate = null;
+            if (absMatcher.find()) {
+                try { parsedDate = java.time.LocalDate.parse(absMatcher.group(1)); } catch (Exception e) { /* ignore */ }
+            } else if (relMatcher.find()) {
+                String rel = relMatcher.group(1);
+                java.time.LocalDate today = java.time.LocalDate.now();
+                switch (rel) {
+                    case "今天": parsedDate = today; break;
+                    case "明天": parsedDate = today.plusDays(1); break;
+                    case "后天": parsedDate = today.plusDays(2); break;
+                    case "大后天": parsedDate = today.plusDays(3); break;
+                }
             }
 
-            log.info("[Agent] 时间注入: 从 slots 解析 time_expression={}", timeExpr);
-
-            // 解析 date
-            java.time.LocalDate resolvedDate = resolveDate(timeExpr);
-            // 解析 time_preference
-            String resolvedTimePref = resolveTimePreference(timeExpr);
-
-            // LLM 没传 date 时才注入
-            if (resolvedDate != null && !args.containsKey("date")) {
-                args.put("date", resolvedDate.toString());
-                log.info("[Agent] 时间注入 date={}", resolvedDate);
+            if (parsedDate != null && !hasDate) {
+                args.put("date", parsedDate.toString());
+                log.info("[Agent] 自动注入 date={}", parsedDate);
             }
-            // LLM 没传 time_preference 时才注入
-            if (resolvedTimePref != null && !args.containsKey("time_preference")) {
-                args.put("time_preference", resolvedTimePref);
-                log.info("[Agent] 时间注入 time_preference={}", resolvedTimePref);
+
+            // 解析时间部分
+            java.util.regex.Matcher timeMatcher = java.util.regex.Pattern.compile(
+                    "(\\d{1,2})[:点](\\d{2})?"
+            ).matcher(timeExpr);
+            if (timeMatcher.find() && !hasTimePref) {
+                int h = Integer.parseInt(timeMatcher.group(1));
+                int min = timeMatcher.group(2) != null ? Integer.parseInt(timeMatcher.group(2)) : 0;
+                // 处理上午/下午
+                if (timeExpr.contains("下午") || timeExpr.contains("傍晚") || timeExpr.contains("晚上")) {
+                    if (h <= 12) h += 12;
+                }
+                // 上午/早上 不加 12
+                String timePref = String.format("%02d:%02d", h, min);
+                args.put("time_preference", timePref);
+                log.info("[Agent] 自动注入 time_preference={}", timePref);
             }
 
             return MAPPER.writeValueAsString(args);
         } catch (Exception e) {
-            log.warn("[Agent] 注入时间参数失败, 原始参数: {}", toolArgs);
+            log.warn("[Agent] 注入时间槽位失败, 原始参数: {}", toolArgs);
             return toolArgs;
         }
-    }
-
-    /**
-     * 从 time_expression 中解析出日期（java.time.LocalDate）。
-     * 支持：今天/明天/后天/大后天/周X/下周X/yyyy-MM-dd/N月N号
-     */
-    private java.time.LocalDate resolveDate(String timeExpr) {
-        java.time.LocalDate today = java.time.LocalDate.now();
-        // 已经是 yyyy-MM-dd 格式
-        if (timeExpr.startsWith("20") && timeExpr.length() >= 10) {
-            try {
-                return java.time.LocalDate.parse(timeExpr.substring(0, 10));
-            } catch (Exception e) {
-                // ignore
-            }
-        }
-        // 相对日期
-        if (timeExpr.contains("今天")) return today;
-        if (timeExpr.contains("明天")) return today.plusDays(1);
-        if (timeExpr.contains("后天")) return today.plusDays(2);
-        if (timeExpr.contains("大后天")) return today.plusDays(3);
-        // 周X
-        java.util.regex.Matcher weekM = java.util.regex.Pattern.compile(
-                "(?:本周|下周)?周([一二三四五六日天])").matcher(timeExpr);
-        if (weekM.find()) {
-            int targetDayOfWeek = "一二三四五六日天".indexOf(weekM.group(1)) + 1; // 1-7
-            int todayDayOfWeek = today.getDayOfWeek().getValue(); // 1(Mon)-7(Sun)
-            int diff = targetDayOfWeek - todayDayOfWeek;
-            if (timeExpr.contains("下周")) {
-                diff += 7;
-            } else if (diff < 0) {
-                diff += 7; // 本周内还没到，算本周
-            }
-            if (diff == 0) diff = 0; // 今天
-            return today.plusDays(diff);
-        }
-        // N月N号
-        java.util.regex.Matcher absM = java.util.regex.Pattern.compile(
-                "(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*[号日]").matcher(timeExpr);
-        if (absM.find()) {
-            int month = Integer.parseInt(absM.group(1));
-            int day = Integer.parseInt(absM.group(2));
-            int year = java.time.Year.now().getValue();
-            java.time.LocalDate candidate = java.time.LocalDate.of(year, month, day);
-            if (candidate.isBefore(today)) {
-                candidate = candidate.plusYears(1);
-            }
-            return candidate;
-        }
-        return null;
-    }
-
-    /**
-     * 从 time_expression 中解析出时间偏好（HH:mm 格式）。
-     * 支持：9:30 / 9点30 / 下午4点 / 晚上8点 / 上午10点
-     */
-    private String resolveTimePreference(String timeExpr) {
-        // 检测上午/下午/晚上修饰
-        boolean isAfternoon = timeExpr.contains("下午") || timeExpr.contains("傍晚") || timeExpr.contains("晚上");
-        // 匹配 HH:MM 或 HH点 或 HH点MM
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                "(\\d{1,2})[:点：](\\d{2})?").matcher(timeExpr);
-        if (m.find()) {
-            int h = Integer.parseInt(m.group(1));
-            int min = m.group(2) != null ? Integer.parseInt(m.group(2)) : 0;
-            if (isAfternoon && h <= 12) {
-                h += 12;
-            }
-            if (h >= 0 && h < 24 && min >= 0 && min < 60) {
-                return String.format("%02d:%02d", h, min);
-            }
-        }
-        return null;
     }
 
     /** 向 get_user_orders 的工具参数 JSON 中强制注入当前登录用户ID */

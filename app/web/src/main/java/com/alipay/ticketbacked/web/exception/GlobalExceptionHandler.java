@@ -4,6 +4,8 @@ import com.alipay.ticketbacked.core.model.BizException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -20,6 +22,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BizException.class)
     public ResponseEntity<Map<String, Object>> handleBizException(BizException e) {
         return ResponseEntity.status(e.getStatus()).body(Map.of("detail", e.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException e) {
+        FieldError fieldError = e.getBindingResult().getFieldError();
+        String msg = fieldError != null ? fieldError.getDefaultMessage() : "参数校验失败";
+        return ResponseEntity.status(400).body(Map.of("detail", msg));
     }
 
     @ExceptionHandler(Exception.class)
