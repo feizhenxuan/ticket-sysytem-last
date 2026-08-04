@@ -56,7 +56,7 @@ public class AdminLogAspect {
         if (c.contains("Auth")) return "管理员认证"; return "其他";
     }
     private String resolveAction(String m, String h) {
-        String l = m.toLowerCase();
+        String l = m.toLowerCase(java.util.Locale.ROOT);
         if (l.contains("refund")) return "退款"; if (l.contains("register")) return "注册"; if (l.contains("login")) return "登录";
         if (l.contains("status")) return "修改状态";
         if (l.contains("create") || "POST".equals(h)) return l.contains("hall") ? "新增影厅" : "新增";

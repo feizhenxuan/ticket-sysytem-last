@@ -5,8 +5,7 @@ import com.alipay.ticketbacked.common.util.JwtUtil;
 import com.alipay.ticketbacked.core.model.Admin;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -16,8 +15,6 @@ import org.springframework.web.servlet.HandlerInterceptor;
  */
 @Component
 public class AdminAuthInterceptor implements HandlerInterceptor {
-
-    private static final Logger log = LoggerFactory.getLogger(AdminAuthInterceptor.class);
 
     private final JwtUtil jwtUtil;
     private final AdminMapper adminMapper;

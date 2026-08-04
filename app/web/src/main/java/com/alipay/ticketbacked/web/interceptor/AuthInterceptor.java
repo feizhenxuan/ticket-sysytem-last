@@ -52,7 +52,7 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         log.info("[AuthInterceptor] 开始查询用户, userId={}", userId);
         User user = userMapper.findById(userId);
-        log.info("[AuthInterceptor] 查询结果 user={}", user == null ? "null" : "id=" + user.getId() + ", username=" + user.getUsername());
+        log.info("[AuthInterceptor] 查询结果 user={}", user == null ? "null" : "id={}, username={}", user == null ? null : user.getId(), user == null ? null : user.getUsername());
         if (user == null) {
             response.setStatus(401);
             response.setContentType("application/json;charset=UTF-8");

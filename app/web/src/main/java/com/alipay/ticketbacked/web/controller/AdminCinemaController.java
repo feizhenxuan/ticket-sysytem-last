@@ -51,10 +51,10 @@ public class AdminCinemaController {
                        @RequestParam(defaultValue = "0") int offset) {
         List<Cinema> cinemas = cinemaMapper.findAll(9999);
         if (search != null && !search.isBlank()) {
-            String kw = search.toLowerCase();
+            String kw = search.toLowerCase(java.util.Locale.ROOT);
             cinemas = cinemas.stream().filter(c ->
-                (c.getName() != null && c.getName().toLowerCase().contains(kw)) ||
-                (c.getAddress() != null && c.getAddress().toLowerCase().contains(kw))
+                (c.getName() != null && c.getName().toLowerCase(java.util.Locale.ROOT).contains(kw)) ||
+                (c.getAddress() != null && c.getAddress().toLowerCase(java.util.Locale.ROOT).contains(kw))
             ).collect(Collectors.toList());
         }
         if (city != null && !city.isBlank()) {

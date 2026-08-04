@@ -43,11 +43,6 @@ public class SlotManager {
             "^(今天|明天|后天|大后天)$"
     );
 
-    // 绝对日期：N月N号/N月N日
-    private static final Pattern ABSOLUTE_DATE_PATTERN = Pattern.compile(
-            "(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*[号日]"
-    );
-
     // 绝对日期可带时间段和时分
     private static final Pattern ABSOLUTE_DATE_FULL_PATTERN = Pattern.compile(
             "(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*[号日]" +

@@ -191,13 +191,9 @@ public class AgentFunctionConfig {
                     if (m.find()) {
                         int h = Integer.parseInt(m.group(1));
                         int min = m.group(2) != null ? Integer.parseInt(m.group(2)) : 0;
-                        // 上午/早上 → 保持原始小时
-                        if (timePref.contains("上午") || timePref.contains("早上")) {
-                            // 不加 12
-                        }
-                        // 下午/傍晚/晚上 → +12
-                        else if (timePref.contains("下午") || timePref.contains("傍晚") || timePref.contains("晚上")) {
-                            if (h <= 12) h += 12;
+                        // 上午/早上 → 保持原始小时；下午/傍晚/晚上 → +12
+                        if ((timePref.contains("下午") || timePref.contains("傍晚") || timePref.contains("晚上")) && h <= 12) {
+                            h += 12;
                         }
                         if (h >= 0 && h < 24 && min >= 0 && min < 60) {
                             targetHour = h;
