@@ -43,7 +43,7 @@ public class AdminSessionController {
     @GetMapping
     public Object list(@RequestParam(required = false) Long movie_id,
                        @RequestParam(required = false) Long cinema_id) {
-        var items = sessionService.listSessions(movie_id, cinema_id, null);
+        var items = sessionService.listAllSessionsForAdmin(movie_id, cinema_id);
         return Map.of("items", items, "total", items.size());
     }
 

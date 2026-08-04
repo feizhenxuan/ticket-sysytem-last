@@ -12,6 +12,9 @@ import java.util.List;
 @Mapper
 public interface SessionMapper {
 
+    @Select("SELECT * FROM hx_sessions ORDER BY start_time")
+    List<Session> findAll();
+
     @Select("SELECT * FROM hx_sessions WHERE status != 'closed' ORDER BY start_time")
     List<Session> findAllAvailable();
 
