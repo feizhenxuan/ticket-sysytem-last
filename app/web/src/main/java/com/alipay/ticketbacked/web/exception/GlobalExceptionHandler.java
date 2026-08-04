@@ -7,7 +7,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -26,22 +25,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception e) {
         log.error("[全局异常] 类型: {}, 消息: {}", e.getClass().getName(), e.getMessage(), e);
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("detail", "内部错误: " + e.getMessage());
-        body.put("exception", e.getClass().getName());
-        if (e.getCause() != null) {
-            body.put("cause", e.getCause().getClass().getName() + ": " + e.getCause().getMessage());
-        }
-        StackTraceElement[] st = e.getStackTrace();
-        if (st != null && st.length > 0) {
-            StringBuilder sb = new StringBuilder();
-            int limit = Math.min(st.length, 20);
-            for (int i = 0; i < limit; i++) {
-                sb.append(st[i].toString()).append('\n');
-            }
-            body.put("stacktrace", sb.toString());
-        }
-        return ResponseEntity.status(500).body(body);
+        // 不向前端泄露内部堆栈信息
+        return ResponseEntity.status(500).body(Map.of("detail", "服务器内部错误"));
     }
 }
