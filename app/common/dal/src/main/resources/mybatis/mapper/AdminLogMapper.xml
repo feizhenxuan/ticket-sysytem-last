@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alipay.ticketbacked.common.dal.mapper.AdminLogMapper">
+    <insert id="insert" parameterType="com.alipay.ticketbacked.core.model.AdminLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hx_admin_logs (admin_id, admin_username, module, action, target_id, target_name,
+                                    request_path, request_method, status, detail, gmt_create)
+        VALUES (#{adminId}, #{adminUsername}, #{module}, #{action}, #{targetId}, #{targetName},
+                #{requestPath}, #{requestMethod}, #{status}, #{detail}, NOW())
+    </insert>
+</mapper>
