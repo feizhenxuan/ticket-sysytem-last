@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.function.Function;
@@ -183,15 +184,19 @@ public class AgentFunctionConfig {
                 Integer targetHour = null;
                 Integer targetMinute = null;
                 if (timePref != null && !timePref.isBlank()) {
-                    // 尝试解析 "16:00" / "下午4点" / "4点" / "16点" / "下午4:00" 等格式
+                    // 支持格式: "09:00", "16:00", "下午4点", "4点", "16点", "下午4:00", "上午9点", "晚上8点"
                     java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                            "(?:(?:下午|傍晚)\\s*)?(\\d{1,2})[:点：](\\d{2})?"
+                            "(\\d{1,2})[:点：](\\d{2})?"
                     ).matcher(timePref);
                     if (m.find()) {
                         int h = Integer.parseInt(m.group(1));
                         int min = m.group(2) != null ? Integer.parseInt(m.group(2)) : 0;
-                        // 下午/傍晚 且小时<=12 → +12
-                        if (timePref.contains("下午") || timePref.contains("傍晚")) {
+                        // 上午/早上 → 保持原始小时
+                        if (timePref.contains("上午") || timePref.contains("早上")) {
+                            // 不加 12
+                        }
+                        // 下午/傍晚/晚上 → +12
+                        else if (timePref.contains("下午") || timePref.contains("傍晚") || timePref.contains("晚上")) {
                             if (h <= 12) h += 12;
                         }
                         if (h >= 0 && h < 24 && min >= 0 && min < 60) {
@@ -308,14 +313,14 @@ public class AgentFunctionConfig {
                     List<Map<String, Object>> items = new ArrayList<>();
                     for (Session s : nearbySessions) {
                         Map<String, Object> i = new HashMap<>();
-                        i.put("session_id", s.getId());
+                        i.put("id", s.getId());
                         i.put("movie_id", s.getMovieId());
                         i.put("movie_title", movieTitleMap.getOrDefault(s.getMovieId(), "未知电影"));
                         Cinema cin = nearbyCinemaMap.get(s.getCinemaId());
                         i.put("cinema_id", s.getCinemaId());
                         i.put("cinema_name", cin != null ? cin.getName() : "");
                         i.put("hall_name", hallNameMap.getOrDefault(s.getHallId(), ""));
-                        i.put("start_time", s.getStartTime() != null ? s.getStartTime().format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm")) : "");
+                        i.put("start_time", s.getStartTime() != null ? s.getStartTime().toString() : "");
                         i.put("price", s.getPrice());
                         i.put("status", s.getStatus());
                         items.add(i);
@@ -336,7 +341,23 @@ public class AgentFunctionConfig {
                 if (cinemaName != null && !cinemaName.isBlank()) {
                     List<Cinema> cm2 = cm.searchByName(cinemaName, 5);
                     if (cm2.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到影院: "+cinemaName)));
-                    if (cm2.size() > 1) { List<String> n = cm2.stream().map(Cinema::getName).collect(Collectors.toList()); return MAPPER.writeValueAsString(List.of(Map.of("need_confirmation",true,"type","cinema","options",n,"message","找到多家影院："+String.join(" / ",n)))); }
+                    if (cm2.size() > 1) {
+                        // 多家匹配：有定位时按距离取最近的一家，不再要求消歧
+                        if (hasLocation) {
+                            cm2.sort((a1, b1) -> {
+                                double da = a1.getLongitude() != null && a1.getLatitude() != null
+                                        ? haversineKm(userLng, userLat, a1.getLongitude().doubleValue(), a1.getLatitude().doubleValue()) : Double.MAX_VALUE;
+                                double db = b1.getLongitude() != null && b1.getLatitude() != null
+                                        ? haversineKm(userLng, userLat, b1.getLongitude().doubleValue(), b1.getLatitude().doubleValue()) : Double.MAX_VALUE;
+                                return Double.compare(da, db);
+                            });
+                            log.info("[search_sessions] 多家影院匹配, 按距离取最近: {}", cm2.get(0).getName());
+                        } else {
+                            // 无定位时仍需消歧
+                            List<String> n = cm2.stream().map(Cinema::getName).collect(Collectors.toList());
+                            return MAPPER.writeValueAsString(List.of(Map.of("need_confirmation",true,"type","cinema","options",n,"message","找到多家影院："+String.join(" / ",n))));
+                        }
+                    }
                     sessions = sm.findByMovieAndCinema(movie.getId(), cm2.get(0).getId());
                     sessions = sessions.stream()
                             .filter(s -> s.getStartTime() != null && !s.getStartTime().isBefore(now))
@@ -403,6 +424,21 @@ public class AgentFunctionConfig {
                             .sorted(java.util.Comparator.comparingLong(
                                     s -> Math.abs(java.time.Duration.between(s.getStartTime(), tgt).toMinutes())))
                             .collect(Collectors.toList());
+
+                    // 有时间偏好时只取最接近的3场，避免卡片过多
+                    if (sessions.size() > 3) {
+                        sessions = sessions.stream().limit(3).collect(Collectors.toList());
+                    }
+                }
+
+                // 如果指定了影院名但匹配到多家（已取最近），且场次来自多影院，只保留最近影院的场次
+                if (cinemaName != null && !cinemaName.isBlank() && sessions.size() > 3) {
+                    // 按影院分组，取第一家（最近）的场次
+                    Long firstCinemaId = sessions.get(0).getCinemaId();
+                    sessions = sessions.stream()
+                            .filter(s -> s.getCinemaId().equals(firstCinemaId))
+                            .limit(5)
+                            .collect(Collectors.toList());
                 }
 
                 List<Map<String,Object>> items = new ArrayList<>();
@@ -425,6 +461,12 @@ public class AgentFunctionConfig {
                     Cinema cin = cinemaMap.get(s.getCinemaId());
                     i.put("cinema_id", s.getCinemaId());
                     i.put("cinema_name", cin != null ? cin.getName() : "");
+                    // 添加影院距离
+                    if (cin != null && hasLocation && cin.getLongitude() != null && cin.getLatitude() != null) {
+                        double dist = haversineKm(userLng, userLat,
+                                cin.getLongitude().doubleValue(), cin.getLatitude().doubleValue());
+                        i.put("distance_km", Math.round(dist * 10) / 10.0);
+                    }
                     // 高亮最接近的场次（第一个，已按时间差排序）
                     if (targetTime != null) {
                         i.put("is_highlight", false); // 先都设false
@@ -488,8 +530,21 @@ public class AgentFunctionConfig {
                     return "{\"error\":\"支付宝退款失败: " + refundResult.getOrDefault("sub_msg", "未知错误") + "\"}";
                 }
                 // 支付宝退款成功后再更新订单状态 + 释放座位
-                os.refundOrder(orderId, userId);
-                log.info("[refund_order] 退票成功: orderId={}, userId={}", orderId, userId);
+                // 如果 DB 更新失败，钱已退不能回滚，记录告警但返回成功（避免二次退款）
+                try {
+                    os.refundOrder(orderId, userId);
+                    log.info("[refund_order] 退票成功: orderId={}, userId={}", orderId, userId);
+                } catch (Exception dbEx) {
+                    log.error("[refund_order] 支付宝已退款但DB更新失败! orderId={}, 需人工核对: {}", orderId, dbEx.getMessage());
+                    // 重新查一次订单，可能已被并发更新
+                    Order recheck = os.getOrder(orderId, userId);
+                    if (recheck != null && "refunded".equals(recheck.getStatus())) {
+                        log.info("[refund_order] 订单已被其他流程更新为refunded: orderId={}", orderId);
+                    } else {
+                        // DB 更新确实失败，返回告警但标记已退款，防止 LLM 二次调用
+                        return "{\"warning\":\"退款已提交，订单状态更新中，请勿重复退票\"}";
+                    }
+                }
                 var r = new LinkedHashMap<String,Object>();
                 r.put("success", true);
                 r.put("message", "退款成功，退款将原路返回");
@@ -500,6 +555,34 @@ public class AgentFunctionConfig {
             } catch (Exception e) {
                 log.error("[refund_order] 退票异常", e);
                 return "{\"error\":\"退票失败: " + e.getMessage() + "\"}";
+            }
+        });
+    }
+
+    // cancel_order — 取消待支付订单
+    @Bean public ToolCallback cancelOrder(OrderService os) {
+        return cb("cancel_order", "取消待支付订单。用户说要取消某个待支付订单时调用此工具。order_id 由系统自动注入。只能取消待支付(pending)状态的订单。",
+                "{\"type\":\"object\",\"properties\":{\"order_id\":{\"type\":\"integer\",\"description\":\"要取消的订单ID\"},\"user_id\":{\"type\":\"integer\",\"description\":\"用户ID（系统自动注入，无需关心）\"}},\"required\":[\"order_id\"]}",
+                input -> {
+            try {
+                Map<String, Object> a = MAPPER.readValue(input, Map.class);
+                Object oidObj = a.get("order_id");
+                Object uidObj = a.get("user_id");
+                if (oidObj == null) return "{\"error\":\"缺少订单ID\"}";
+                if (uidObj == null) return "{\"error\":\"用户ID缺失\"}";
+                Long orderId = ((Number) oidObj).longValue();
+                Long userId = ((Number) uidObj).longValue();
+
+                os.cancelOrder(orderId, userId);
+
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("order_id", orderId);
+                r.put("status", "cancelled");
+                r.put("message", "订单已取消");
+                return MAPPER.writeValueAsString(r);
+            } catch (Exception e) {
+                log.error("[cancel_order] 取消订单异常", e);
+                return "{\"error\":\"取消订单失败: " + e.getMessage() + "\"}";
             }
         });
     }
@@ -608,6 +691,171 @@ public class AgentFunctionConfig {
                     @SuppressWarnings("unchecked") Map<String,Object> existing = s.getSlots() != null && !s.getSlots().isBlank() ? MAPPER.readValue(s.getSlots(), Map.class) : new HashMap<>(); existing.putAll(slots);
                     csm.updateSlotsAndContext(sid, MAPPER.writeValueAsString(existing), "", s.getContext() != null ? s.getContext() : "{}"); } }
                 return "{\"status\":\"ok\",\"message\":\"槽位已保存\"}"; } catch (Exception e) { return "{\"status\":\"error\"}"; }
+        });
+    }
+
+    // ===== 新增工具 =====
+
+    /** 查询某场次的余票和座位情况 */
+    @Bean public ToolCallback getSessionSeats(SessionMapper sm, SessionSeatMapper ssm, HallMapper hm, CinemaMapper cm, MovieMapper mm) {
+        return cb("get_session_seats", "查询某场次的余票和座位情况。用户问'还有票吗''坐满了吗''还有空座吗'时调用。",
+                "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"integer\",\"description\":\"场次ID\"}},\"required\":[\"session_id\"]}",
+                input -> {
+            try {
+                Map<String,Object> a = MAPPER.readValue(input, Map.class);
+                Number sid = (Number) a.get("session_id");
+                if (sid == null) return MAPPER.writeValueAsString(List.of(Map.of("error","缺少 session_id 参数")));
+                long sessionId = sid.longValue();
+
+                // 查场次是否存在
+                List<Session> allSessions = sm.findAllAvailable();
+                Session session = allSessions.stream()
+                        .filter(s -> s.getId() != null && s.getId() == sessionId)
+                        .findFirst().orElse(null);
+                if (session == null) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到该场次")));
+
+                // 统计座位
+                int available = ssm.countByStatus(sessionId, "available");
+                int sold = ssm.countByStatus(sessionId, "sold");
+                int locked = ssm.countByStatus(sessionId, "locked");
+                int total = available + sold + locked;
+
+                Map<String,Object> result = new LinkedHashMap<>();
+                result.put("session_id", sessionId);
+                result.put("total_seats", total);
+                result.put("available_seats", available);
+                result.put("sold_seats", sold);
+                result.put("locked_seats", locked);
+                result.put("start_time", session.getStartTime() != null ? session.getStartTime().toString() : "");
+                result.put("price", session.getPrice());
+                result.put("status", session.getStatus());
+
+                // 补充影院和电影名
+                Cinema cin = cm.findAllNoLimit().stream()
+                        .filter(c -> c.getId().equals(session.getCinemaId())).findFirst().orElse(null);
+                result.put("cinema_name", cin != null ? cin.getName() : "");
+                Hall hall = session.getHallId() != null ? hm.findById(session.getHallId()) : null;
+                result.put("hall_name", hall != null ? hall.getName() : "");
+
+                return MAPPER.writeValueAsString(result);
+            } catch (Exception e) {
+                return "{\"error\":\"查询余票失败\"}";
+            }
+        });
+    }
+
+    /** 查询某影院正在上映的电影列表 */
+    @Bean public ToolCallback getCinemaMovies(SessionMapper sm, MovieMapper mm, CinemaMapper cm, HallMapper hm) {
+        return cb("get_cinema_movies", "查询某影院正在上映的电影列表。用户问'万达影城今天有什么电影''这家影院放什么'时调用。",
+                "{\"type\":\"object\",\"properties\":{\"cinema_name\":{\"type\":\"string\",\"description\":\"影院名称(支持模糊匹配)\"},\"lat\":{\"type\":\"number\",\"description\":\"用户纬度(系统自动注入)\"},\"lng\":{\"type\":\"number\",\"description\":\"用户经度(系统自动注入)\"}},\"required\":[\"cinema_name\"]}",
+                input -> {
+            try {
+                Map<String,Object> a = MAPPER.readValue(input, Map.class);
+                String cinemaName = (String) a.get("cinema_name");
+                if (cinemaName == null || cinemaName.isBlank()) return MAPPER.writeValueAsString(List.of(Map.of("error","缺少影院名")));
+
+                List<Cinema> cinemas = cm.searchByName(cinemaName, 1);
+                if (cinemas.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到影院: " + cinemaName)));
+                Cinema cinema = cinemas.get(0);
+
+                LocalDateTime now = LocalDateTime.now();
+                List<Session> sessions = sm.findByCinemaId(cinema.getId());
+                sessions = sessions.stream()
+                        .filter(s -> s.getStartTime() != null && !s.getStartTime().isBefore(now))
+                        .collect(Collectors.toList());
+
+                if (sessions.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","该影院暂无排片")));
+
+                // 按电影分组
+                Map<Long, List<Session>> byMovie = sessions.stream()
+                        .collect(Collectors.groupingBy(Session::getMovieId));
+
+                List<Map<String,Object>> items = new ArrayList<>();
+                for (Map.Entry<Long, List<Session>> entry : byMovie.entrySet()) {
+                    Movie m = mm.findById(entry.getKey());
+                    if (m == null) continue;
+                    List<Session> movieSessions = entry.getValue();
+                    movieSessions.sort(java.util.Comparator.comparing(Session::getStartTime));
+
+                    Map<String,Object> item = new LinkedHashMap<>();
+                    item.put("movie_id", m.getId());
+                    item.put("title", m.getTitle());
+                    item.put("rating", m.getRating());
+                    item.put("genre", m.getGenre());
+                    item.put("duration", m.getDuration());
+                    item.put("session_count", movieSessions.size());
+                    item.put("earliest_time", movieSessions.get(0).getStartTime() != null ? movieSessions.get(0).getStartTime().toString() : "");
+                    // 最低价
+                    BigDecimal minPrice = movieSessions.stream()
+                            .map(Session::getPrice).filter(Objects::nonNull)
+                            .min(BigDecimal::compareTo).orElse(null);
+                    item.put("min_price", minPrice);
+                    items.add(item);
+                }
+
+                return MAPPER.writeValueAsString(items);
+            } catch (Exception e) {
+                return "{\"error\":\"查询影院排片失败\"}";
+            }
+        });
+    }
+
+    /** 查询某电影的票价区间 */
+    @Bean public ToolCallback getTicketPriceInfo(MovieMapper mm, SessionMapper sm, CinemaMapper cm) {
+        return cb("get_ticket_price_info", "查询某电影的票价区间。用户问'这部电影大概多少钱''票价多少'时调用。",
+                "{\"type\":\"object\",\"properties\":{\"movie_name\":{\"type\":\"string\",\"description\":\"电影名称\"},\"lat\":{\"type\":\"number\",\"description\":\"用户纬度(系统自动注入)\"},\"lng\":{\"type\":\"number\",\"description\":\"用户经度(系统自动注入)\"}},\"required\":[\"movie_name\"]}",
+                input -> {
+            try {
+                Map<String,Object> a = MAPPER.readValue(input, Map.class);
+                String movieName = (String) a.get("movie_name");
+                if (movieName == null || movieName.isBlank()) return MAPPER.writeValueAsString(List.of(Map.of("error","缺少电影名")));
+
+                List<Movie> movies = mm.searchByKeyword(movieName, "showing", 10);
+                if (movies.isEmpty()) movies = mm.searchByKeyword(movieName, "coming", 10);
+                if (movies.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","未找到电影: " + movieName)));
+                Movie movie = movies.get(0);
+
+                double userLat = a.containsKey("lat") ? ((Number) a.get("lat")).doubleValue() : -1;
+                double userLng = a.containsKey("lng") ? ((Number) a.get("lng")).doubleValue() : -1;
+                boolean hasLocation = userLat > 0 && userLng > 0;
+
+                LocalDateTime now = LocalDateTime.now();
+                List<Session> sessions = sm.findByMovieId(movie.getId());
+                sessions = sessions.stream()
+                        .filter(s -> s.getStartTime() != null && !s.getStartTime().isBefore(now))
+                        .collect(Collectors.toList());
+
+                // 如果有定位，过滤附近5km
+                if (hasLocation) {
+                    Map<Long, Cinema> cinemaMap = cm.findAllNoLimit().stream()
+                            .collect(Collectors.toMap(Cinema::getId, c -> c, (x, y) -> x));
+                    sessions = sessions.stream()
+                            .filter(s -> {
+                                Cinema c = cinemaMap.get(s.getCinemaId());
+                                if (c == null || c.getLongitude() == null || c.getLatitude() == null) return false;
+                                return haversineKm(userLng, userLat, c.getLongitude().doubleValue(), c.getLatitude().doubleValue()) <= 5.0;
+                            })
+                            .collect(Collectors.toList());
+                }
+
+                if (sessions.isEmpty()) return MAPPER.writeValueAsString(List.of(Map.of("error","该电影暂无可用场次")));
+
+                BigDecimal minPrice = sessions.stream().map(Session::getPrice).filter(Objects::nonNull).min(BigDecimal::compareTo).orElse(null);
+                BigDecimal maxPrice = sessions.stream().map(Session::getPrice).filter(Objects::nonNull).max(BigDecimal::compareTo).orElse(null);
+                double avgPrice = sessions.stream().map(Session::getPrice).filter(Objects::nonNull)
+                        .mapToDouble(BigDecimal::doubleValue).average().orElse(0);
+
+                Map<String,Object> result = new LinkedHashMap<>();
+                result.put("movie_title", movie.getTitle());
+                result.put("min_price", minPrice);
+                result.put("max_price", maxPrice);
+                result.put("avg_price", Math.round(avgPrice * 100) / 100.0);
+                result.put("session_count", sessions.size());
+
+                return MAPPER.writeValueAsString(result);
+            } catch (Exception e) {
+                return "{\"error\":\"查询票价失败\"}";
+            }
         });
     }
 }

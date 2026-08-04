@@ -20,6 +20,10 @@
 			<groupId>com.alipay</groupId>
 			<artifactId>ticketbacked-common-service-integration</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>jakarta.validation</groupId>
+			<artifactId>jakarta.validation-api</artifactId>
+		</dependency>
 
 	</dependencies>
 
