@@ -99,6 +99,55 @@ public class SessionService {
         }).collect(Collectors.toList());
     }
 
+    /** 管理端场次列表 — 返回所有状态的场次（包括 closed） */
+    public List<SessionDTO> listAllSessionsForAdmin(Long movieId, Long cinemaId) {
+        List<Session> sessions;
+        if (movieId != null && cinemaId != null) {
+            sessions = sessionMapper.findByMovieAndCinema(movieId, cinemaId);
+        } else if (movieId != null) {
+            sessions = sessionMapper.findByMovieId(movieId);
+        } else if (cinemaId != null) {
+            sessions = sessionMapper.findByCinemaId(cinemaId);
+        } else {
+            sessions = sessionMapper.findAll();
+        }
+
+        if (sessions.isEmpty()) return Collections.emptyList();
+
+        Set<Long> cinemaIds = sessions.stream().map(Session::getCinemaId).collect(Collectors.toSet());
+        Set<Long> movieIds = sessions.stream().map(Session::getMovieId).collect(Collectors.toSet());
+        Set<Long> hallIds = sessions.stream().map(Session::getHallId).collect(Collectors.toSet());
+
+        Map<Long, Cinema> cinemaMap = cinemaIds.isEmpty() ? Map.of()
+                : cinemaMapper.findAll(9999).stream().collect(Collectors.toMap(Cinema::getId, c -> c));
+        Map<Long, Movie> movieMap = movieIds.isEmpty() ? Map.of()
+                : movieMapper.findAllOrderByRating(9999).stream()
+                .collect(Collectors.toMap(Movie::getId, m -> m, (a, b) -> a));
+        Map<Long, Hall> hallMap = hallIds.isEmpty() ? Map.of()
+                : hallMapper.findByIds(new ArrayList<>(hallIds)).stream()
+                .collect(Collectors.toMap(Hall::getId, h -> h));
+
+        return sessions.stream().map(s -> {
+            SessionDTO dto = new SessionDTO();
+            dto.setId(s.getId());
+            dto.setMovieId(s.getMovieId());
+            dto.setCinemaId(s.getCinemaId());
+            dto.setHallId(s.getHallId());
+            dto.setStartTime(s.getStartTime());
+            dto.setEndTime(s.getEndTime());
+            dto.setPrice(s.getPrice());
+            dto.setStatus(s.getStatus());
+            Cinema c = cinemaMap.get(s.getCinemaId());
+            dto.setCinemaName(c != null ? c.getName() : "");
+            Movie m = movieMap.get(s.getMovieId());
+            dto.setMovieTitle(m != null ? m.getTitle() : "");
+            Hall h = hallMap.get(s.getHallId());
+            dto.setHallName(h != null ? h.getName() : "");
+            dto.setHallType(h != null ? h.getHallType() : "");
+            return dto;
+        }).collect(Collectors.toList());
+    }
+
     /** 单场次详情 */
     public Map<String, Object> getSessionDetail(Long sessionId) {
         Session s = sessionMapper.findById(sessionId);

@@ -6,10 +6,12 @@ import com.alipay.ticketbacked.common.dal.mapper.SessionSeatMapper;
 import com.alipay.ticketbacked.common.dal.mapper.SeatMapper;
 import com.alipay.ticketbacked.common.dal.mapper.HallMapper;
 import com.alipay.ticketbacked.common.dal.mapper.CinemaMapper;
+import com.alipay.ticketbacked.common.dal.mapper.OrderMapper;
 import com.alipay.ticketbacked.core.model.Session;
 import com.alipay.ticketbacked.core.model.Cinema;
 import com.alipay.ticketbacked.core.model.Hall;
 import com.alipay.ticketbacked.core.model.Seat;
+import com.alipay.ticketbacked.core.model.BizException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,24 +28,27 @@ public class AdminSessionController {
     private final SessionMapper sessionMapper;
     private final SessionSeatMapper sessionSeatMapper;
     private final SeatMapper seatMapper;
+    private final OrderMapper orderMapper;
     private final HallMapper hallMapper;
     private final CinemaMapper cinemaMapper;
 
     public AdminSessionController(SessionService sessionService, SessionMapper sessionMapper,
                                    SessionSeatMapper sessionSeatMapper, SeatMapper seatMapper,
-                                   HallMapper hallMapper, CinemaMapper cinemaMapper) {
+                                   HallMapper hallMapper, CinemaMapper cinemaMapper,
+                                   OrderMapper orderMapper) {
         this.sessionService = sessionService;
         this.sessionMapper = sessionMapper;
         this.sessionSeatMapper = sessionSeatMapper;
         this.seatMapper = seatMapper;
         this.hallMapper = hallMapper;
         this.cinemaMapper = cinemaMapper;
+        this.orderMapper = orderMapper;
     }
 
     @GetMapping
     public Object list(@RequestParam(required = false) Long movie_id,
                        @RequestParam(required = false) Long cinema_id) {
-        var items = sessionService.listSessions(movie_id, cinema_id, null);
+        var items = sessionService.listAllSessionsForAdmin(movie_id, cinema_id);
         return Map.of("items", items, "total", items.size());
     }
 
@@ -58,6 +63,28 @@ public class AdminSessionController {
     public Object create(@RequestBody Session session) {
         if (session.getStatus() == null) session.setStatus("available");
         sessionService.createSession(session);
+
+        // 自动初始化座位：先确保影厅有完整座位，再初始化场次座位状态
+        if (session.getId() != null && session.getHallId() != null) {
+            Long hallId = session.getHallId();
+            Hall hall = hallMapper.findById(hallId);
+            int expectedRows = (hall != null && hall.getTotalRows() != null) ? hall.getTotalRows() : 8;
+            int expectedCols = (hall != null && hall.getTotalCols() != null) ? hall.getTotalCols() : 12;
+            int expectedSeatCount = expectedRows * expectedCols;
+
+            // 检查影厅座位数量是否完整，不够则重新初始化
+            List<Seat> existingSeats = seatMapper.findByHallId(hallId);
+            if (existingSeats == null || existingSeats.size() < expectedSeatCount) {
+                // 先清除旧的不完整座位数据
+                seatMapper.deleteByHallId(hallId);
+                // 重新按影厅行列数初始化完整座位
+                seatMapper.initSeatsForHall(hallId, expectedRows, expectedCols);
+            }
+            // 初始化场次座位状态
+            int seatCount = sessionSeatMapper.initSeatsForSession(session.getId(), hallId);
+            System.out.println("[createSession] 场次 " + session.getId() + " 初始化 " + seatCount + " 个座位 (影厅 " + expectedRows + "x" + expectedCols + "=" + expectedSeatCount + ")");
+        }
+
         return session;
     }
 
@@ -70,6 +97,10 @@ public class AdminSessionController {
 
     @DeleteMapping("/{id}")
     public Object delete(@PathVariable Long id) {
+        int orderCount = orderMapper.countBySessionId(id);
+        if (orderCount > 0) {
+            throw BizException.badRequest("该场次有 " + orderCount + " 个关联订单，无法删除");
+        }
         sessionService.deleteSession(id);
         return Map.of("message", "删除成功");
     }
