@@ -242,30 +242,34 @@ public class OrderService {
         if (order == null) throw BizException.notFound("订单不存在");
         if (!"pending".equals(order.getStatus())) throw BizException.badRequest("只能取消待支付订单");
 
-        // 取消前先查支付宝，确认这笔订单是否已经付款
-        Map<String, Object> queryResult = alipayClient.queryTradeStatus(order.getOrderNo());
-        boolean queryFailed = Boolean.TRUE.equals(queryResult.get("query_failed"));
-        String tradeStatus = (String) queryResult.get("trade_status");
+        if (alipayClient.isConfigured()) {
+            // 取消前先查支付宝，确认这笔订单是否已经付款
+            Map<String, Object> queryResult = alipayClient.queryTradeStatus(order.getOrderNo());
+            boolean queryFailed = Boolean.TRUE.equals(queryResult.get("query_failed"));
+            String tradeStatus = (String) queryResult.get("trade_status");
 
-        if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
-            // 用户已经付款了！走退款流程，而不是直接取消
-            log.warn("[cancelOrder] 订单 {} 在支付宝侧已付款(trade_status={}), 自动退款再取消", orderId, tradeStatus);
-            String totalAmount = order.getTotalAmount() != null
-                    ? order.getTotalAmount().toPlainString() : "0";
-            Map<String, Object> refundResult = alipayClient.refund(order.getOrderNo(), totalAmount);
-            String refundCode = (String) refundResult.get("code");
-            if ("10000".equals(refundCode)) {
-                log.info("[cancelOrder] 订单 {} 退款成功", orderId);
+            if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
+                // 用户已经付款了！走退款流程，而不是直接取消
+                log.warn("[cancelOrder] 订单 {} 在支付宝侧已付款(trade_status={}), 自动退款再取消", orderId, tradeStatus);
+                String totalAmount = order.getTotalAmount() != null
+                        ? order.getTotalAmount().toPlainString() : "0";
+                Map<String, Object> refundResult = alipayClient.refund(order.getOrderNo(), totalAmount);
+                String refundCode = (String) refundResult.get("code");
+                if ("10000".equals(refundCode)) {
+                    log.info("[cancelOrder] 订单 {} 退款成功", orderId);
+                } else {
+                    log.error("[cancelOrder] 订单 {} 退款失败: code={}, sub_msg={}", orderId, refundCode, refundResult.get("sub_msg"));
+                    throw BizException.badRequest("支付宝侧已付款，退款失败，请联系客服");
+                }
+            } else if (queryFailed) {
+                // 查询本身失败，安全起见也不直接取消
+                log.warn("[cancelOrder] 订单 {} 查询支付宝状态失败，拒绝取消以防误退款", orderId);
+                throw BizException.badRequest("无法确认支付状态，请稍后重试或联系客服");
             } else {
-                log.error("[cancelOrder] 订单 {} 退款失败: code={}, sub_msg={}", orderId, refundCode, refundResult.get("sub_msg"));
-                throw BizException.badRequest("支付宝侧已付款，退款失败，请联系客服");
+                log.info("[cancelOrder] 订单 {} 支付宝侧未付款(trade_status={}), 正常取消", orderId, tradeStatus);
             }
-        } else if (queryFailed) {
-            // 查询本身失败，安全起见也不直接取消
-            log.warn("[cancelOrder] 订单 {} 查询支付宝状态失败，拒绝取消以防误退款", orderId);
-            throw BizException.badRequest("无法确认支付状态，请稍后重试或联系客服");
         } else {
-            log.info("[cancelOrder] 订单 {} 支付宝侧未付款(trade_status={}), 正常取消", orderId, tradeStatus);
+            log.info("[cancelOrder] 本地未配置支付宝，跳过支付状态查询并取消待支付订单: orderId={}", orderId);
         }
 
         log.info("[cancelOrder] orderId={}, sessionId={}, seatIds={}", orderId, order.getSessionId(), order.getSeatIds());
@@ -280,6 +284,9 @@ public class OrderService {
     @Transactional
     public void checkAndConfirmPayment(Order order) {
         if (order == null || order.getOrderNo() == null) return;
+        if (!alipayClient.isConfigured()) {
+            return;
+        }
         try {
             Map<String, Object> queryResult = alipayClient.queryTradeStatus(order.getOrderNo());
             if (Boolean.TRUE.equals(queryResult.get("query_failed"))) return;

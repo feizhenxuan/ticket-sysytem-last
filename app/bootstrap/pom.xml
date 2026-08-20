@@ -21,24 +21,17 @@
 			<artifactId>ticketbacked-web</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>actuator-alipay-sofa-boot-starter</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>insight-alipay-sofa-boot-starter</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>isle-alipay-sofa-boot-starter</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>log4j2-alipay-sofa-boot-starter</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>tracer-alipay-sofa-boot-starter</artifactId>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>runtime</scope>
 		</dependency>
 
 	</dependencies>
@@ -48,101 +41,12 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
-				<configuration>
-					<outputDirectory>../../target/boot</outputDirectory>
-					<classifier>executable</classifier>
-					<excludes>
-						<exclude>
-							<groupId>ch.qos.logback</groupId>
-							<artifactId>logback-classic</artifactId>
-						</exclude>
-						<exclude>
-							<groupId>org.slf4j</groupId>
-							<artifactId>slf4j-log4j12</artifactId>
-						</exclude>
-						<exclude>
-							<groupId>org.slf4j</groupId>
-							<artifactId>slf4j-jdk14</artifactId>
-						</exclude>
-						<exclude>
-							<groupId>org.jboss.slf4j</groupId>
-							<artifactId>slf4j-jboss-logging</artifactId>
-						</exclude>
-						<exclude>
-							<groupId>org.slf4j</groupId>
-							<artifactId>slf4j-jcl</artifactId>
-						</exclude>
-						<exclude>
-							<groupId>org.apache.logging.log4j</groupId>
-							<artifactId>log4j-to-slf4j</artifactId>
-						</exclude>
-					</excludes>
-				</configuration>
 				<executions>
 					<execution>
 						<id>package</id>
 						<goals>
 							<goal>repackage</goal>
 						</goals>
-					</execution>
-				</executions>
-				<dependencies>
-					<dependency>
-						<groupId>com.alipay.sofa</groupId>
-						<artifactId>sofa-boot-alipay-loader-tools</artifactId>
-						<version>${sofa.boot.alipay.version}</version>
-					</dependency>
-				</dependencies>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-resources-plugin</artifactId>
-				<version>2.6</version>
-				<executions>
-					<execution>
-						<id>copy-resources</id>
-						<phase>package</phase>
-						<goals>
-							<goal>copy-resources</goal>
-						</goals>
-						<configuration>
-							<encoding>UTF-8</encoding>
-							<outputDirectory>../../target</outputDirectory>
-							<resources>
-								<resource>
-									<directory>../../conf</directory>
-								</resource>
-							</resources>
-						</configuration>
-					</execution>
-					<execution>
-						<id>copy-configs</id>
-						<phase>package</phase>
-						<goals>
-							<goal>copy-resources</goal>
-						</goals>
-						<configuration>
-							<encoding>UTF-8</encoding>
-							<outputDirectory>../../target/config</outputDirectory>
-							<resources>
-								<resource>
-									<directory>./src/main/resources/config/${app}</directory>
-									<includes>
-										<include>*.properties</include>
-										<include>*.yaml</include>
-										<include>*.yml</include>
-									</includes>
-								</resource>
-								<resource>
-									<directory>./src/main/resources/config</directory>
-									<includes>
-										<include>*.properties</include>
-										<include>*.yaml</include>
-										<include>*.yml</include>
-									</includes>
-								</resource>
-							</resources>
-						</configuration>
 					</execution>
 				</executions>
 			</plugin>

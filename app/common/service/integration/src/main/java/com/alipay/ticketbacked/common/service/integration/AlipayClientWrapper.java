@@ -47,6 +47,12 @@ public class AlipayClientWrapper {
 
     private AlipayClient client;
 
+    public boolean isConfigured() {
+        return appId != null && !appId.isBlank() && !"local-dev-app-id".equals(appId)
+                && appPrivateKey != null && !appPrivateKey.isBlank()
+                && alipayPublicKey != null && !alipayPublicKey.isBlank();
+    }
+
     private AlipayClient getClient() {
         if (client == null) {
             client = new DefaultAlipayClient(
@@ -60,6 +66,9 @@ public class AlipayClientWrapper {
      *  pageExecute().getBody() 返回自提交 HTML <form>，前端需用 document.write 渲染
      *  @param returnUrlOverride 前端动态传入的 return_url（优先使用，避免硬编码端口不匹配） */
     public String createPaymentForm(String orderNo, String amount, String subject, String returnUrlOverride) {
+        if (!isConfigured()) {
+            throw new IllegalStateException("支付宝沙箱未配置");
+        }
         AlipayTradePagePayRequest request = new AlipayTradePagePayRequest();
         String effectiveReturnUrl = (returnUrlOverride != null && !returnUrlOverride.isBlank())
                 ? returnUrlOverride : returnUrl;
@@ -88,6 +97,13 @@ public class AlipayClientWrapper {
     /** 当面付预下单 — 返回二维码链接（沙箱支持）
      *  前端拿到 qr_code 后生成二维码图片，用户用支付宝扫码支付 */
     public Map<String, Object> createPrecreateQRCode(String orderNo, String amount, String subject) {
+        if (!isConfigured()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", "CONFIG_MISSING");
+            result.put("sub_msg", "支付宝沙箱未配置");
+            result.put("qr_code", null);
+            return result;
+        }
         AlipayTradePrecreateRequest request = new AlipayTradePrecreateRequest();
         if (notifyUrl != null && !notifyUrl.isBlank()) {
             request.setNotifyUrl(notifyUrl);
@@ -116,6 +132,9 @@ public class AlipayClientWrapper {
 
     /** 验签支付宝异步通知 — 对应 Python verify_notify */
     public boolean verifyNotify(Map<String, String> params) {
+        if (!isConfigured()) {
+            return false;
+        }
         try {
             params.remove("sign");
             params.remove("sign_type");
@@ -131,6 +150,13 @@ public class AlipayClientWrapper {
      *           TRADE_CLOSED=已关闭/未付款关闭, TRADE_FINISHED=交易完成（不可退款）
      *           query_failed=true 表示查询本身出错（网络/签名等），调用方应自行决定兜底策略 */
     public Map<String, Object> queryTradeStatus(String orderNo) {
+        if (!isConfigured()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("query_failed", true);
+            result.put("trade_status", null);
+            result.put("config_missing", true);
+            return result;
+        }
         AlipayTradeQueryRequest request = new AlipayTradeQueryRequest();
         request.setBizContent("{\"out_trade_no\":\"" + orderNo + "\"}");
         try {
@@ -154,6 +180,12 @@ public class AlipayClientWrapper {
 
     /** 退款 — 对应 Python refund */
     public Map<String, Object> refund(String orderNo, String amount) {
+        if (!isConfigured()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", "CONFIG_MISSING");
+            result.put("sub_msg", "支付宝沙箱未配置");
+            return result;
+        }
         AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
         request.setBizContent(
                 "{\"out_trade_no\":\"" + orderNo + "\","

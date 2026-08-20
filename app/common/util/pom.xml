@@ -16,10 +16,6 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
-		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>runtime-alipay-sofa-boot-starter</artifactId>
-		</dependency>
 		<!-- JJWT for JWT token -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>

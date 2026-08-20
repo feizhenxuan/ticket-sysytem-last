@@ -20,10 +20,9 @@
 			<groupId>com.alipay</groupId>
 			<artifactId>ticketbacked-common-dal</artifactId>
 		</dependency>
-		<!-- SOFA AI — OpenAI 协议接入 GLM -->
 		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>sofa-ai-openai-sofa-boot-starter</artifactId>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-openai</artifactId>
 		</dependency>
 
 	</dependencies>

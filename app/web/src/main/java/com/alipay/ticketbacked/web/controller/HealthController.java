@@ -14,9 +14,4 @@ public class HealthController {
     public Map<String, Object> health() {
         return Map.of("status", "ok", "mysql", "up");
     }
-
-    @GetMapping("/")
-    public Map<String, Object> root() {
-        return Map.of("message", "智能购票助手 API", "docs", "/api");
-    }
 }

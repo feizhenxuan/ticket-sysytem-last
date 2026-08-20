@@ -1,0 +1,83 @@
+{
+  "appName": "testzzoneticket",
+  "version": "1.0.0",
+  "antdVersion": "5.29.1",
+  "bigfishVersion": "4.6.7",
+  "yuyanId": "180020010001296660",
+  "buildTime": 1787215927628,
+  "createTime": "",
+  "apiCors": {
+    "DEV": [
+      {
+        "appName": "http://localhost:8888",
+        "serverHost": "http://localhost:8888"
+      }
+    ]
+  },
+  "routes": [
+    {
+      "id": "1",
+      "name": "",
+      "path": "/"
+    },
+    {
+      "id": "2",
+      "name": "登录",
+      "path": "/login"
+    },
+    {
+      "id": "3",
+      "name": "支付回调",
+      "path": "/pay/return"
+    },
+    {
+      "id": "4",
+      "name": "",
+      "path": "/chat"
+    },
+    {
+      "id": "5",
+      "name": "个人中心",
+      "path": "/profile"
+    },
+    {
+      "id": "6",
+      "name": "",
+      "path": "/app",
+      "children": [
+        {
+          "id": "7",
+          "path": "/app"
+        },
+        {
+          "id": "8",
+          "path": "/app/home"
+        },
+        {
+          "id": "9",
+          "path": "/app/movies"
+        },
+        {
+          "id": "10",
+          "path": "/app/cinemas"
+        },
+        {
+          "id": "11",
+          "path": "/app/location"
+        },
+        {
+          "id": "12",
+          "path": "/app/movie/:movieId"
+        },
+        {
+          "id": "13",
+          "path": "/app/cinema/:cinemaId"
+        },
+        {
+          "id": "14",
+          "path": "/app/seats/:sessionId"
+        }
+      ]
+    }
+  ]
+}

@@ -13,8 +13,8 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
-import com.alipay.sofa.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -231,8 +231,8 @@ public class ChatAgentService {
 
             // 6. Agent 循环 — 手写 ReAct + stream 流式
             OpenAiChatOptions options = OpenAiChatOptions.builder()
-                    .withToolCallbacks(toolCallbacks)
-                    .withInternalToolExecutionEnabled(false)
+                    .toolCallbacks(toolCallbacks)
+                    .internalToolExecutionEnabled(false)
                     .build();
 
             String fullReply = "";
@@ -372,16 +372,19 @@ public class ChatAgentService {
                             }
 
                             toolResponses.add(new ToolResponseMessage.ToolResponse(
-                                    toolName != null ? toolName : "unknown",
-                                    tcb.id != null ? tcb.id : "", result));
+                                    tcb.id != null ? tcb.id : "",
+                                    toolName != null ? toolName : "unknown", result));
                         } else {
                             log.warn("[Agent] 未知工具: {}", toolName);
                             toolResponses.add(new ToolResponseMessage.ToolResponse(
-                                    toolName != null ? toolName : "unknown",
-                                    tcb.id != null ? tcb.id : "", "{\"error\":\"未知工具\"}"));
+                                    tcb.id != null ? tcb.id : "",
+                                    toolName != null ? toolName : "unknown", "{\"error\":\"未知工具\"}"));
                         }
                     }
-                    messages.add(new ToolResponseMessage(toolResponses));
+                    messages.add(ToolResponseMessage.builder()
+                            .responses(toolResponses)
+                            .metadata(Map.of())
+                            .build());
 
                     // 检查工具结果是否需要消歧确认
                     boolean needConfirm = false;
@@ -732,7 +735,12 @@ public class ChatAgentService {
                     tcb.arguments.toString()
             ));
         }
-        return new AssistantMessage("", Map.of(), toolCalls);
+        return AssistantMessage.builder()
+                .content("")
+                .properties(Map.of())
+                .toolCalls(toolCalls)
+                .media(List.of())
+                .build();
     }
 
     private ChatSession getOrCreateSession(String sessionId, Long userId) {

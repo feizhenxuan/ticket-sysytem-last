@@ -39,6 +39,9 @@ public class PaymentController {
         Order order = orderService.getOrder(order_id, user.getId());
         if (order == null) throw BizException.notFound("订单不存在");
         if (!"pending".equals(order.getStatus())) throw BizException.badRequest("订单状态不可支付");
+        if (!alipayClient.isConfigured()) {
+            throw BizException.badRequest("支付宝沙箱未配置，无法创建支付表单");
+        }
 
         String subject = "电影票-" + order.getOrderNo();
         String payForm = alipayClient.createPaymentForm(

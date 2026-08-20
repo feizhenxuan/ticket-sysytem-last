@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 
 /**
  * MyBatis 配置 — 显式创建 SqlSessionFactory
- * DataSource 由 DDS Starter (dds-alipay-sofa-boot-starter) 自动注入
+ * DataSource 由 Spring Boot 根据 spring.datasource.* 配置自动注入。
  */
 @Configuration
 @MapperScan("com.alipay.ticketbacked.common.dal.mapper")

@@ -21,12 +21,12 @@
 			<artifactId>ticketbacked-common-service-integration</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>com.alipay.security</groupId>
-			<artifactId>alipay-security-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>com.alipay.sofa</groupId>
-			<artifactId>web-alipay-sofa-boot-starter</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aop</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

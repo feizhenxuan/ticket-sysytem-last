@@ -20,7 +20,7 @@ public class AdminConfigController {
     @Value("${app.amap.api-key:}")
     private String amapApiKey;
 
-    @Value("${sofa.ai.openai.chat.options.model:}")
+    @Value("${spring.ai.openai.chat.options.model:}")
     private String llmModel;
 
     // 默认配置（模拟 Python admin_config 的数据库存储）

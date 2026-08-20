@@ -1,29 +1,13 @@
 package com.alipay.ticketbacked;
 
-import com.alipay.sofa.boot.reader.VelocityXmlBeanDefinitionReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
-import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
-import org.springframework.boot.autoconfigure.transaction.TransactionManagerCustomizationAutoConfiguration;
-import org.springframework.context.annotation.ImportResource;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-/**
- * 排除 DataSourceAutoConfiguration:
- * DDS Starter 读取 com.alipay.sofa.dds.* 配置自动创建 ZdalDataSource
- */
-@SpringBootApplication(exclude = {
-        DataSourceAutoConfiguration.class,
-        DataSourceTransactionManagerAutoConfiguration.class,
-        HibernateJpaAutoConfiguration.class,
-        TransactionManagerCustomizationAutoConfiguration.class
-})
+@SpringBootApplication
 @EnableScheduling
-@ImportResource(locations = "classpath*:spring/*.xml", reader = VelocityXmlBeanDefinitionReader.class)
 public class TicketbackedApplication {
 	private static final Logger LOGGER = LoggerFactory.getLogger(TicketbackedApplication.class);
 
